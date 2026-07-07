@@ -86,12 +86,3 @@ A production-ready full-stack MERN (MongoDB, Express, React, Node) application d
 
 ---
 
-## Seed Accounts (Ready to Test)
-
-| Role | Username / Email | Password | Details |
-| :--- | :--- | :--- | :--- |
-| **Super Admin (Nodal)** | `admin@setu.gov.in` | `admin123` | Inspects all permits, manages users, resolves conflicts manually |
-| **PWD Officer** | `pwd@setu.gov.in` | `pwd123` | Requests permits, resolves PWD conflicts, signs restorations |
-| **Water Board Officer** | `water@setu.gov.in` | `water123` | Manages pipeline coordinates, approves joint works |
-| **Telecom Officer** | `tele@setu.gov.in` | `tele123` | Inspects fiber installations |
-| **Citizen** | `citizen@gmail.com` | `citizen123` | Files complaints, tracks tickets, reviews closure alerts, rates outcomes |
