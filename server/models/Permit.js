@@ -1,102 +1,33 @@
 import mongoose from 'mongoose';
+import softDeletePlugin from '../plugins/softDelete.js';
 
-const PermitSchema = new mongoose.Schema(
-  {
-    department: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: 'Department',
-      required: true,
-    },
-    roadName: {
-      type: String,
-      required: [true, 'Please add the road name'],
-      trim: true,
-    },
-    ward: {
-      type: String,
-      required: [true, 'Please add the ward'],
-      trim: true,
-    },
-    latitude: {
-      type: Number,
-      required: [true, 'Please add latitude'],
-    },
-    longitude: {
-      type: Number,
-      required: [true, 'Please add longitude'],
-    },
-    location: {
-      type: {
-        type: String,
-        enum: ['Point'],
-        default: 'Point',
-      },
-      coordinates: {
-        type: [Number], // [longitude, latitude]
-        required: true,
-      },
-    },
-    radius: {
-      type: Number,
-      required: [true, 'Please add radius (meters)'],
-      default: 50, // default conflict search radius in meters
-    },
-    purpose: {
-      type: String,
-      required: [true, 'Please add the purpose of digging'],
-    },
-    startDate: {
-      type: Date,
-      required: [true, 'Please add start date'],
-    },
-    endDate: {
-      type: Date,
-      required: [true, 'Please add end date'],
-    },
-    depth: {
-      type: Number,
-      required: [true, 'Please add digging depth (meters)'],
-    },
-    restorationPlan: {
-      type: String,
-      required: [true, 'Please add restoration plan details'],
-    },
-    status: {
-      type: String,
-      enum: ['Pending', 'Approved', 'Rejected', 'Active', 'Completed', 'Conflict'],
-      default: 'Pending',
-    },
-    conflictingPermits: [
-      {
-        type: mongoose.Schema.Types.ObjectId,
-        ref: 'Permit',
-      },
-    ],
-    isJointExcavationSuggested: {
-      type: Boolean,
-      default: false,
-    },
-    jointExcavationAgreedBy: [
-      {
-        type: mongoose.Schema.Types.ObjectId,
-        ref: 'Department',
-      },
-    ],
-    applicantName: {
-      type: String,
-      required: true,
-    },
-    applicantPhone: {
-      type: String,
-      required: true,
-    },
+const permitSchema = new mongoose.Schema({
+  permitNumber: { type: String, required: true, unique: true },
+  department: { type: mongoose.Schema.Types.ObjectId, ref: 'Department', required: true },
+  applicant: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+  roadName: { type: String, required: true },
+  ward: { type: mongoose.Schema.Types.ObjectId, ref: 'Ward', required: true },
+  location: {
+    type: { type: String, enum: ['Point'], required: true, default: 'Point' },
+    coordinates: { type: [Number], required: true } // [longitude, latitude]
   },
-  {
-    timestamps: true,
-  }
-);
+  radius: { type: Number, required: true, min: 10, max: 1000 }, // Affected spatial zone in meters
+  purpose: { type: String, required: true, minlength: 10 },
+  startDate: { type: Date, required: true },
+  endDate: { type: Date, required: true },
+  depth: { type: Number, required: true, min: 0.1 }, // In meters
+  restorationPlan: { type: String, required: true },
+  status: { type: String, required: true, enum: ['Pending', 'Approved', 'Active', 'Completed', 'Conflict', 'Rejected', 'Suspended'], default: 'Pending' },
+  isJointExcavationSuggested: { type: Boolean, default: false },
+  conflictingPermits: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Permit' }],
+  isDeleted: { type: Boolean, default: false }
+}, { timestamps: true });
 
-// Create 2dsphere index for spatial queries
-PermitSchema.index({ location: '2dsphere' });
+permitSchema.index({ location: '2dsphere' });
+permitSchema.index({ status: 1 });
+permitSchema.index({ startDate: 1, endDate: 1 });
+permitSchema.index({ isDeleted: 1 });
 
-export default mongoose.model('Permit', PermitSchema);
+permitSchema.plugin(softDeletePlugin);
+
+export default mongoose.model('Permit', permitSchema);

@@ -1,41 +1,19 @@
 import mongoose from 'mongoose';
 
-const NotificationSchema = new mongoose.Schema(
-  {
-    recipient: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: 'User',
-      required: false, // if null, it could be a broadcast or general department notification
-    },
-    recipientDepartment: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: 'Department',
-      required: false,
-    },
-    title: {
-      type: String,
-      required: true,
-    },
-    message: {
-      type: String,
-      required: true,
-    },
-    type: {
-      type: String,
-      enum: ['Permit', 'Complaint', 'Conflict', 'System'],
-      default: 'System',
-    },
-    read: {
-      type: Boolean,
-      default: false,
-    },
-    metadata: {
-      type: mongoose.Schema.Types.Mixed, // e.g. { permitId: "...", complaintId: "..." }
-    },
-  },
-  {
-    timestamps: true,
+const notificationSchema = new mongoose.Schema({
+  recipient: { type: mongoose.Schema.Types.ObjectId, ref: 'User' }, // Target User
+  recipientDepartment: { type: mongoose.Schema.Types.ObjectId, ref: 'Department' }, // Target Department (for group alerts)
+  title: { type: String, required: true },
+  message: { type: String, required: true },
+  type: { type: String, enum: ['Conflict', 'PermitStatus', 'ComplaintStatus', 'General'], required: true },
+  isRead: { type: Boolean, default: false },
+  metadata: {
+    permitId: { type: mongoose.Schema.Types.ObjectId, ref: 'Permit' },
+    complaintId: { type: mongoose.Schema.Types.ObjectId, ref: 'Complaint' }
   }
-);
+}, { timestamps: true });
 
-export default mongoose.model('Notification', NotificationSchema);
+notificationSchema.index({ recipient: 1, isRead: 1 });
+notificationSchema.index({ recipientDepartment: 1, isRead: 1 });
+
+export default mongoose.model('Notification', notificationSchema);

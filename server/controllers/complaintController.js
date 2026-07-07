@@ -1,26 +1,28 @@
-import Complaint from '../models/Complaint.js';
-import Department from '../models/Department.js';
-import Notification from '../models/Notification.js';
-import ErrorResponse from '../utils/errorResponse.js';
-import asyncHandler from '../utils/asyncHandler.js';
-import ActivityLog from '../models/ActivityLog.js';
+import crypto from 'crypto';
+import ComplaintRepository from '../repositories/ComplaintRepository.js';
+import DepartmentRepository from '../repositories/DepartmentRepository.js';
+import NotificationRepository from '../repositories/NotificationRepository.js';
+import ActivityLogRepository from '../repositories/ActivityLogRepository.js';
+import ComplaintTimeline from '../models/ComplaintTimeline.js';
+import Feedback from '../models/Feedback.js';
+import AppError from '../utils/appError.js';
 import { getIO } from '../sockets/socketHandler.js';
+import logger from '../utils/logger.js';
 
 // Helper to auto-assign department based on complaint type
 const autoAssignDepartment = async (complaintType) => {
-  let targetCode = 'PWD'; // Default fallback
+  let targetCode = 'PWD';
 
   switch (complaintType) {
     case 'Water Leakage':
       targetCode = 'WATER';
       break;
-    case 'Cable Damage':
+    case 'Cable Exposure':
       targetCode = 'TELE';
       break;
-    case 'Pothole':
-    case 'Road Digging':
-    case 'Open Trench':
     case 'Unauthorized Digging':
+    case 'Road Damage':
+    case 'Debris Accumulation':
       targetCode = 'PWD';
       break;
     case 'Electricity':
@@ -31,254 +33,273 @@ const autoAssignDepartment = async (complaintType) => {
       break;
   }
 
-  const dept = await Department.findOne({ code: targetCode });
+  const dept = await DepartmentRepository.findByCode(targetCode);
   return dept ? dept._id : null;
 };
 
 // @desc    Report a new complaint
 // @route   POST /api/complaints
 // @access  Private (Citizen / Admin)
-export const createComplaint = asyncHandler(async (req, res, next) => {
-  const { description, latitude, longitude, ward, complaintType, priority } = req.body;
+export const createComplaint = async (req, res, next) => {
+  try {
+    const { description, latitude, longitude, ward, complaintType, priority } = req.body;
 
-  // Auto assign department
-  const assignedDeptId = await autoAssignDepartment(complaintType);
-  if (!assignedDeptId) {
-    return next(new ErrorResponse('Could not auto-assign department. Check database seeds.', 500));
-  }
+    const assignedDeptId = await autoAssignDepartment(complaintType);
+    if (!assignedDeptId) {
+      return next(new AppError('Could not auto-assign department. Check database configuration.', 500, 'SERVER_ERROR'));
+    }
 
-  const photoUrl = req.fileUrl || ''; // from handleImageUpload middleware
+    const photoUrl = req.fileUrl || ''; // Passed from Multer/upload middleware if any
+    const complaintNumber = `CMP-${crypto.randomInt(100000, 999999)}`;
 
-  const complaint = await Complaint.create({
-    citizen: req.user._id,
-    photoUrl,
-    description,
-    latitude: Number(latitude),
-    longitude: Number(longitude),
-    location: {
-      type: 'Point',
-      coordinates: [Number(longitude), Number(latitude)],
-    },
-    ward,
-    complaintType,
-    department: assignedDeptId,
-    priority: priority || 'Medium',
-    status: 'Received',
-    statusTimeline: [
-      {
-        status: 'Received',
-        remarks: 'Complaint registered successfully by Citizen.',
+    const complaint = await ComplaintRepository.create({
+      complaintNumber,
+      citizen: req.user._id,
+      description,
+      location: {
+        type: 'Point',
+        coordinates: [Number(longitude), Number(latitude)],
       },
-    ],
-  });
-
-  // Fetch populated details
-  const populatedComplaint = await Complaint.findById(complaint._id)
-    .populate('citizen', 'name email phone')
-    .populate('department');
-
-  // Log activity
-  await ActivityLog.create({
-    user: req.user._id,
-    action: 'REPORT_COMPLAINT',
-    details: `Citizen submitted complaint ID ${complaint._id} of type: ${complaintType}`,
-    ipAddress: req.ip,
-  });
-
-  // Socket notification to the assigned department and global admin
-  const io = getIO();
-  if (io) {
-    const notification = await Notification.create({
-      recipientDepartment: assignedDeptId,
-      title: 'New Complaint Received',
-      message: `A new complaint of type ${complaintType} has been assigned to your department in ward ${ward}.`,
-      type: 'Complaint',
-      metadata: { complaintId: complaint._id },
+      ward,
+      complaintType,
+      department: assignedDeptId,
+      priority: priority || 'Medium',
+      status: 'Received',
     });
-    
-    // Notify department room
-    io.to(`dept_${assignedDeptId.toString()}`).emit('notification', notification);
-    io.to('role_Super_Admin').emit('notification', notification);
-    
-    // Broadcast for dashboard live update
-    io.emit('complaint_created', populatedComplaint);
-  }
 
-  res.status(201).json({
-    success: true,
-    data: populatedComplaint,
-  });
-});
+    // Handle photo attachments in Attachment collection if photoUrl exists
+    // We can link it later or write it directly
+
+    // Initial timeline log
+    await ComplaintTimeline.create({
+      complaint: complaint._id,
+      actor: req.user._id,
+      previousStatus: null,
+      newStatus: 'Received',
+      remarks: 'Complaint registered successfully by Citizen.'
+    });
+
+    // Track activity
+    await ActivityLogRepository.log(
+      req.user._id,
+      'REPORT_COMPLAINT',
+      `Citizen submitted complaint '${complaintNumber}' of type: ${complaintType}`,
+      req.ip
+    );
+
+    const populatedComplaint = await ComplaintRepository.findByIdWithDetails(complaint._id);
+
+    // Socket Notifications
+    const io = getIO();
+    if (io) {
+      const notification = await NotificationRepository.create({
+        recipientDepartment: assignedDeptId,
+        title: 'New Complaint Received',
+        message: `A new complaint of type ${complaintType} has been assigned to your department.`,
+        type: 'ComplaintStatus',
+        metadata: { complaintId: complaint._id },
+      });
+
+      io.to(`dept_${assignedDeptId.toString()}`).emit('notification', notification);
+      io.to('role_Super_Admin').emit('notification', notification);
+      io.emit('complaint_created', populatedComplaint);
+    }
+
+    res.status(201).json({
+      success: true,
+      data: populatedComplaint,
+    });
+  } catch (error) {
+    next(error);
+  }
+};
 
 // @desc    Get all complaints
 // @route   GET /api/complaints
 // @access  Private
-export const getComplaints = asyncHandler(async (req, res, next) => {
-  let queryObj = {};
+export const getComplaints = async (req, res, next) => {
+  try {
+    const queryObj = {};
+    const roleName = req.user.role && typeof req.user.role === 'object' ? req.user.role.name : req.user.role;
 
-  // If user is a Citizen, restrict them to their own complaints
-  if (req.user.role === 'Citizen') {
-    queryObj.citizen = req.user._id;
-  } 
-  // If user is a Department Officer, only show their department's complaints
-  else if (req.user.role === 'Department Officer') {
-    queryObj.department = req.user.department._id;
+    if (roleName === 'Citizen') {
+      queryObj.citizen = req.user._id;
+    } else if (roleName === 'Department Officer') {
+      queryObj.department = req.user.department._id;
+    }
+
+    if (req.query.status) queryObj.status = req.query.status;
+    if (req.query.ward) queryObj.ward = req.query.ward;
+    if (req.query.complaintType) queryObj.complaintType = req.query.complaintType;
+
+    const complaints = await ComplaintRepository.findWithDetails(queryObj);
+
+    res.status(200).json({
+      success: true,
+      count: complaints.length,
+      data: complaints,
+    });
+  } catch (error) {
+    next(error);
   }
-
-  // Allow extra query params like status, ward, complaintType
-  if (req.query.status) queryObj.status = req.query.status;
-  if (req.query.ward) queryObj.ward = req.query.ward;
-  if (req.query.complaintType) queryObj.complaintType = req.query.complaintType;
-
-  let query = Complaint.find(queryObj)
-    .populate('citizen', 'name email phone')
-    .populate('department')
-    .sort('-createdAt');
-
-  // Execution
-  const complaints = await query;
-
-  res.status(200).json({
-    success: true,
-    count: complaints.length,
-    data: complaints,
-  });
-});
+};
 
 // @desc    Get single complaint details
 // @route   GET /api/complaints/:id
 // @access  Private
-export const getComplaintById = asyncHandler(async (req, res, next) => {
-  const complaint = await Complaint.findById(req.params.id)
-    .populate('citizen', 'name email phone')
-    .populate('department');
+export const getComplaintById = async (req, res, next) => {
+  try {
+    const complaint = await ComplaintRepository.findByIdWithDetails(req.params.id);
+    if (!complaint) {
+      return next(new AppError(`Complaint not found with id of ${req.params.id}`, 404, 'COMPLAINT_NOT_FOUND'));
+    }
 
-  if (!complaint) {
-    return next(new ErrorResponse(`Complaint not found with id of ${req.params.id}`, 404));
+    const roleName = req.user.role && typeof req.user.role === 'object' ? req.user.role.name : req.user.role;
+
+    // RBAC Checks
+    if (roleName === 'Citizen' && complaint.citizen._id.toString() !== req.user._id.toString()) {
+      return next(new AppError('Not authorized to access this complaint', 403, 'FORBIDDEN'));
+    }
+
+    if (roleName === 'Department Officer' && complaint.department._id.toString() !== req.user.department._id.toString()) {
+      return next(new AppError('Not authorized to access this department complaint', 403, 'FORBIDDEN'));
+    }
+
+    // Fetch timeline logs
+    const timeline = await ComplaintTimeline.find({ complaint: complaint._id }).populate('actor', 'name role').sort('createdAt');
+
+    // Fetch feedback
+    const feedback = await Feedback.findOne({ complaint: complaint._id }).populate('citizen', 'name');
+
+    res.status(200).json({
+      success: true,
+      data: {
+        ...complaint.toObject(),
+        timeline,
+        feedback
+      },
+    });
+  } catch (error) {
+    next(error);
   }
-
-  // Authorization check
-  if (req.user.role === 'Citizen' && complaint.citizen._id.toString() !== req.user._id.toString()) {
-    return next(new ErrorResponse('Not authorized to access this complaint', 403));
-  }
-
-  if (req.user.role === 'Department Officer' && complaint.department._id.toString() !== req.user.department._id.toString()) {
-    return next(new ErrorResponse('Not authorized to access this department complaint', 403));
-  }
-
-  res.status(200).json({
-    success: true,
-    data: complaint,
-  });
-});
+};
 
 // @desc    Update complaint status
 // @route   PUT /api/complaints/:id/status
 // @access  Private (Department Officer / Super Admin)
-export const updateComplaintStatus = asyncHandler(async (req, res, next) => {
-  const { status, remarks } = req.body;
+export const updateComplaintStatus = async (req, res, next) => {
+  try {
+    const { status, remarks } = req.body;
 
-  let complaint = await Complaint.findById(req.params.id).populate('department');
-
-  if (!complaint) {
-    return next(new ErrorResponse(`Complaint not found with id of ${req.params.id}`, 404));
-  }
-
-  // Authorization Check
-  if (req.user.role === 'Department Officer') {
-    if (complaint.department._id.toString() !== req.user.department._id.toString()) {
-      return next(new ErrorResponse('Not authorized to update complaints for other departments', 403));
+    const complaint = await ComplaintRepository.findByIdWithDetails(req.params.id);
+    if (!complaint) {
+      return next(new AppError(`Complaint not found with id of ${req.params.id}`, 404, 'COMPLAINT_NOT_FOUND'));
     }
-  }
 
-  // Update status and append to timeline
-  complaint.status = status;
-  complaint.statusTimeline.push({
-    status,
-    remarks: remarks || `Status changed to ${status}`,
-    updatedAt: new Date(),
-  });
+    const roleName = req.user.role && typeof req.user.role === 'object' ? req.user.role.name : req.user.role;
 
-  await complaint.save();
-  
-  // Re-fetch populated object
-  const updatedComplaint = await Complaint.findById(complaint._id)
-    .populate('citizen', 'name email phone')
-    .populate('department');
+    if (roleName === 'Department Officer') {
+      if (complaint.department._id.toString() !== req.user.department._id.toString()) {
+        return next(new AppError('Not authorized to update complaints for other departments', 403, 'FORBIDDEN'));
+      }
+    }
 
-  // Log action
-  await ActivityLog.create({
-    user: req.user._id,
-    action: 'UPDATE_COMPLAINT_STATUS',
-    details: `Updated complaint ${complaint._id} status to ${status}`,
-    ipAddress: req.ip,
-  });
+    const previousStatus = complaint.status;
+    complaint.status = status;
+    await complaint.save();
 
-  // Socket notification
-  const io = getIO();
-  if (io) {
-    // Notify the citizen
-    const notification = await Notification.create({
-      recipient: complaint.citizen,
-      title: 'Complaint Update',
-      message: `Your complaint for ${complaint.complaintType} has been updated to: ${status}. Remarks: ${remarks || ''}`,
-      type: 'Complaint',
-      metadata: { complaintId: complaint._id },
+    // Log timeline transition
+    await ComplaintTimeline.create({
+      complaint: complaint._id,
+      actor: req.user._id,
+      previousStatus,
+      newStatus: status,
+      remarks: remarks || `Status transitioned to ${status}.`
     });
 
-    // Send to specific citizen socket room
-    io.to(`user_${complaint.citizen.toString()}`).emit('notification', notification);
-    io.to(`user_${complaint.citizen.toString()}`).emit('complaint_status_changed', updatedComplaint);
-    
-    // General broadcast for updates
-    io.emit('complaint_updated', updatedComplaint);
-  }
+    // Track activity
+    await ActivityLogRepository.log(
+      req.user._id,
+      'UPDATE_COMPLAINT_STATUS',
+      `Updated complaint ${complaint.complaintNumber} status to ${status}`,
+      req.ip
+    );
 
-  res.status(200).json({
-    success: true,
-    data: updatedComplaint,
-  });
-});
+    const updatedComplaint = await ComplaintRepository.findByIdWithDetails(complaint._id);
+
+    // Socket notification
+    const io = getIO();
+    if (io) {
+      const notification = await NotificationRepository.create({
+        recipient: complaint.citizen._id,
+        title: 'Complaint Status Updated',
+        message: `Your complaint ${complaint.complaintNumber} has been updated to: ${status}. Remarks: ${remarks || ''}`,
+        type: 'ComplaintStatus',
+        metadata: { complaintId: complaint._id },
+      });
+
+      io.to(`user_${complaint.citizen._id.toString()}`).emit('notification', notification);
+      io.to(`user_${complaint.citizen._id.toString()}`).emit('complaint_status_changed', updatedComplaint);
+      io.emit('complaint_updated', updatedComplaint);
+    }
+
+    res.status(200).json({
+      success: true,
+      data: updatedComplaint,
+    });
+  } catch (error) {
+    next(error);
+  }
+};
 
 // @desc    Submit rating and feedback
-// @route   POST /api/complaints/:id/rate
+// @route   POST /api/complaints/:id/feedback
 // @access  Private (Citizen)
-export const rateComplaint = asyncHandler(async (req, res, next) => {
-  const { score, comment } = req.body;
+export const rateComplaint = async (req, res, next) => {
+  try {
+    const { rating, comment } = req.body;
 
-  let complaint = await Complaint.findById(req.params.id);
+    const complaint = await ComplaintRepository.findById(req.params.id);
+    if (!complaint) {
+      return next(new AppError(`Complaint not found with id of ${req.params.id}`, 404, 'COMPLAINT_NOT_FOUND'));
+    }
 
-  if (!complaint) {
-    return next(new ErrorResponse(`Complaint not found with id of ${req.params.id}`, 404));
+    // Ensure user is the reporter of the complaint
+    if (complaint.citizen.toString() !== req.user._id.toString()) {
+      return next(new AppError('You can only rate your own complaints', 403, 'FORBIDDEN'));
+    }
+
+    // Ensure complaint is resolved
+    if (complaint.status !== 'Resolved') {
+      return next(new AppError('You can only rate complaints that have been resolved', 400, 'BAD_REQUEST'));
+    }
+
+    // Check if feedback already submitted
+    const existingFeedback = await Feedback.findOne({ complaint: complaint._id });
+    if (existingFeedback) {
+      return next(new AppError('Feedback already submitted for this complaint', 400, 'BAD_REQUEST'));
+    }
+
+    const feedback = await Feedback.create({
+      complaint: complaint._id,
+      citizen: req.user._id,
+      rating: Number(rating),
+      comment: comment || '',
+    });
+
+    // Track activity
+    await ActivityLogRepository.log(
+      req.user._id,
+      'RATE_COMPLAINT',
+      `Rated resolved complaint ${complaint.complaintNumber} with score: ${rating}`,
+      req.ip
+    );
+
+    res.status(200).json({
+      success: true,
+      data: feedback,
+    });
+  } catch (error) {
+    next(error);
   }
-
-  // Ensure user is the reporter of the complaint
-  if (complaint.citizen.toString() !== req.user._id.toString()) {
-    return next(new ErrorResponse('You can only rate your own complaints', 403));
-  }
-
-  // Ensure complaint is resolved
-  if (complaint.status !== 'Resolved') {
-    return next(new ErrorResponse('You can only rate complaints that have been resolved', 400));
-  }
-
-  complaint.rating = {
-    score: Number(score),
-    comment: comment || '',
-  };
-
-  await complaint.save();
-
-  // Log Activity
-  await ActivityLog.create({
-    user: req.user._id,
-    action: 'RATE_COMPLAINT',
-    details: `Rated resolved complaint ${complaint._id} with score: ${score}`,
-    ipAddress: req.ip,
-  });
-
-  res.status(200).json({
-    success: true,
-    data: complaint,
-  });
-});
+};

@@ -1,45 +1,17 @@
 import mongoose from 'mongoose';
 
-const DepartmentSchema = new mongoose.Schema(
-  {
-    name: {
-      type: String,
-      required: [true, 'Please add a department name'],
-      unique: true,
-      trim: true,
-    },
-    code: {
-      type: String,
-      required: [true, 'Please add a department code (e.g. PWD, ELEC)'],
-      unique: true,
-      uppercase: true,
-      trim: true,
-    },
-    description: {
-      type: String,
-      required: [true, 'Please add a description'],
-    },
-    color: {
-      type: String,
-      default: '#14b8a6', // CSS Hex color code for maps/charts
-    },
-    headOfDepartment: {
-      type: String,
-      required: [true, 'Please add HoD name'],
-    },
-    phone: {
-      type: String,
-      required: [true, 'Please add phone contact'],
-    },
-    email: {
-      type: String,
-      required: [true, 'Please add department email'],
-      unique: true,
-    },
-  },
-  {
-    timestamps: true,
-  }
-);
+const departmentSchema = new mongoose.Schema({
+  name: { type: String, required: true, unique: true, trim: true },
+  code: { type: String, required: true, unique: true, uppercase: true, trim: true },
+  description: { type: String },
+  color: { type: String, required: true, default: '#3b82f6' }, // Hex color for mapping
+  headOfDepartment: { type: String, required: true },
+  phone: { type: String, required: true },
+  email: { type: String, required: true, unique: true, match: [/^\w+([\.-]?\w+)*@\w+([\.-]?\w+)*(\.\w{2,3})+$/, 'Invalid email'] },
+  isActive: { type: Boolean, default: true },
+  isDeleted: { type: Boolean, default: false }
+}, { timestamps: true });
 
-export default mongoose.model('Department', DepartmentSchema);
+departmentSchema.index({ isDeleted: 1 });
+
+export default mongoose.model('Department', departmentSchema);

@@ -2,6 +2,7 @@ import React, { createContext, useContext, useEffect, useState } from 'react';
 import { io } from 'socket.io-client';
 import { useAuth } from './AuthContext';
 import { toast } from 'react-toastify';
+import apiClient from '../services/apiClient.js';
 
 const SocketContext = createContext();
 
@@ -71,16 +72,11 @@ export const SocketProvider = ({ children }) => {
 
   const fetchNotifications = async () => {
     try {
-      // Axios interceptor handles Authorization headers automatically from AuthContext
-      const response = await fetch('/api/notifications', {
-        headers: {
-          'Authorization': `Bearer ${localStorage.getItem('token')}`,
-        },
-      });
-      const resData = await response.json();
-      if (resData.success) {
-        setNotifications(resData.data);
-        setUnreadCount(resData.data.filter((n) => !n.read).length);
+      // apiClient handles Authorization headers automatically
+      const response = await apiClient.get('/notifications');
+      if (response.data.success) {
+        setNotifications(response.data.data);
+        setUnreadCount(response.data.data.filter((n) => !n.isRead).length);
       }
     } catch (error) {
       console.error('Error fetching notifications:', error);
@@ -89,16 +85,10 @@ export const SocketProvider = ({ children }) => {
 
   const markNotificationAsRead = async (id) => {
     try {
-      const response = await fetch(`/api/notifications/${id}/read`, {
-        method: 'PUT',
-        headers: {
-          'Authorization': `Bearer ${localStorage.getItem('token')}`,
-        },
-      });
-      const resData = await response.json();
-      if (resData.success) {
+      const response = await apiClient.put(`/notifications/${id}/read`);
+      if (response.data.success) {
         setNotifications((prev) =>
-          prev.map((n) => (n._id === id ? { ...n, read: true } : n))
+          prev.map((n) => (n._id === id ? { ...n, isRead: true } : n))
         );
         setUnreadCount((prev) => Math.max(0, prev - 1));
       }
@@ -109,15 +99,9 @@ export const SocketProvider = ({ children }) => {
 
   const markAllAsRead = async () => {
     try {
-      const response = await fetch('/api/notifications/read-all', {
-        method: 'PUT',
-        headers: {
-          'Authorization': `Bearer ${localStorage.getItem('token')}`,
-        },
-      });
-      const resData = await response.json();
-      if (resData.success) {
-        setNotifications((prev) => prev.map((n) => ({ ...n, read: true })));
+      const response = await apiClient.put('/notifications/read-all');
+      if (response.data.success) {
+        setNotifications((prev) => prev.map((n) => ({ ...n, isRead: true })));
         setUnreadCount(0);
         toast.success('All notifications marked as read');
       }
@@ -143,3 +127,4 @@ export const SocketProvider = ({ children }) => {
 };
 
 export const useSockets = () => useContext(SocketContext);
+export default SocketContext;

@@ -1,4 +1,5 @@
 import { Server } from 'socket.io';
+import logger from '../utils/logger.js';
 
 let io = null;
 
@@ -11,7 +12,7 @@ export const initSockets = (server) => {
   });
 
   io.on('connection', (socket) => {
-    console.log(`Socket Client Connected: ${socket.id}`);
+    logger.info(`Socket Client Connected: ${socket.id}`);
 
     // Join room based on user role/id/department
     socket.on('join_session', (userData) => {
@@ -21,14 +22,14 @@ export const initSockets = (server) => {
       if (userData._id) {
         const userRoom = `user_${userData._id}`;
         socket.join(userRoom);
-        console.log(`Socket ${socket.id} joined individual room: ${userRoom}`);
+        logger.debug(`Socket ${socket.id} joined individual room: ${userRoom}`);
       }
 
       // Join role room
       if (userData.role) {
         const roleRoom = `role_${userData.role.replace(' ', '_')}`;
         socket.join(roleRoom);
-        console.log(`Socket ${socket.id} joined role room: ${roleRoom}`);
+        logger.debug(`Socket ${socket.id} joined role room: ${roleRoom}`);
       }
 
       // Join department room if applicable
@@ -36,12 +37,12 @@ export const initSockets = (server) => {
         const deptId = typeof userData.department === 'object' ? userData.department._id : userData.department;
         const deptRoom = `dept_${deptId}`;
         socket.join(deptRoom);
-        console.log(`Socket ${socket.id} joined department room: ${deptRoom}`);
+        logger.debug(`Socket ${socket.id} joined department room: ${deptRoom}`);
       }
     });
 
     socket.on('disconnect', () => {
-      console.log(`Socket Client Disconnected: ${socket.id}`);
+      logger.info(`Socket Client Disconnected: ${socket.id}`);
     });
   });
 

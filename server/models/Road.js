@@ -1,49 +1,23 @@
 import mongoose from 'mongoose';
+import softDeletePlugin from '../plugins/softDelete.js';
 
-const RoadSchema = new mongoose.Schema(
-  {
-    name: {
-      type: String,
-      required: [true, 'Please add a road name'],
-      trim: true,
-    },
-    ward: {
-      type: String,
-      required: [true, 'Please add ward information'],
-      trim: true,
-    },
-    status: {
-      type: String,
-      enum: ['Open', 'Closed', 'Diverted'],
-      default: 'Open',
-    },
-    closureReason: {
-      type: String,
-      default: '',
-    },
-    closedByPermit: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: 'Permit',
-      default: null,
-    },
-    geometry: {
-      type: {
-        type: String,
-        enum: ['LineString'],
-        default: 'LineString',
-      },
-      coordinates: {
-        type: [[Number]], // Array of [longitude, latitude] coordinates
-        required: true,
-      },
-    },
+const roadSchema = new mongoose.Schema({
+  name: { type: String, required: true, trim: true },
+  ward: { type: mongoose.Schema.Types.ObjectId, ref: 'Ward', required: true },
+  status: { type: String, enum: ['Open', 'Closed', 'Partially Closed'], default: 'Open' },
+  closureReason: { type: String },
+  closedByPermit: { type: mongoose.Schema.Types.ObjectId, ref: 'Permit' },
+  geometry: {
+    type: { type: String, enum: ['LineString'], required: true, default: 'LineString' },
+    coordinates: { type: [[Number]], required: true } // Array of coordinates: [[lon, lat], [lon, lat]]
   },
-  {
-    timestamps: true,
-  }
-);
+  isDeleted: { type: Boolean, default: false }
+}, { timestamps: true });
 
-// GeoJSON index for path searches
-RoadSchema.index({ geometry: '2dsphere' });
+roadSchema.index({ geometry: '2dsphere' });
+roadSchema.index({ status: 1 });
+roadSchema.index({ isDeleted: 1 });
 
-export default mongoose.model('Road', RoadSchema);
+roadSchema.plugin(softDeletePlugin);
+
+export default mongoose.model('Road', roadSchema);

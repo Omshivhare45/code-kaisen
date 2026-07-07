@@ -1,150 +1,188 @@
-import User from '../models/User.js';
-import Department from '../models/Department.js';
-import Permit from '../models/Permit.js';
-import ActivityLog from '../models/ActivityLog.js';
-import ErrorResponse from '../utils/errorResponse.js';
-import asyncHandler from '../utils/asyncHandler.js';
-import Notification from '../models/Notification.js';
+import UserRepository from '../repositories/UserRepository.js';
+import RoleRepository from '../repositories/RoleRepository.js';
+import DepartmentRepository from '../repositories/DepartmentRepository.js';
+import PermitRepository from '../repositories/PermitRepository.js';
+import ActivityLogRepository from '../repositories/ActivityLogRepository.js';
+import NotificationRepository from '../repositories/NotificationRepository.js';
+import AppError from '../utils/appError.js';
+import { toUserDTO } from '../dto/UserDTO.js';
 import { getIO } from '../sockets/socketHandler.js';
 
 // @desc    Get all users
 // @route   GET /api/admin/users
 // @access  Private (Super Admin)
-export const getUsers = asyncHandler(async (req, res, next) => {
-  const users = await User.find().populate('department').sort('-createdAt');
-  res.status(200).json({
-    success: true,
-    data: users,
-  });
-});
+export const getUsers = async (req, res, next) => {
+  try {
+    const users = await UserRepository.findWithDetails();
+    res.status(200).json({
+      success: true,
+      data: users.map(user => toUserDTO(user)),
+    });
+  } catch (error) {
+    next(error);
+  }
+};
 
 // @desc    Update user details/role/department
 // @route   PUT /api/admin/users/:id
 // @access  Private (Super Admin)
-export const updateUser = asyncHandler(async (req, res, next) => {
-  const { role, department, name, phone } = req.body;
+export const updateUser = async (req, res, next) => {
+  try {
+    const { role, department, name, phone } = req.body;
 
-  let updateFields = { name, phone, role };
+    const userToUpdate = await UserRepository.findById(req.params.id);
+    if (!userToUpdate) {
+      return next(new AppError(`User not found with id of ${req.params.id}`, 404, 'USER_NOT_FOUND'));
+    }
 
-  if (role === 'Department Officer') {
-    updateFields.department = department;
-  } else {
-    updateFields.department = null;
+    // Resolve Role ID
+    const roleDoc = await RoleRepository.findByName(role);
+    if (!roleDoc) {
+      return next(new AppError(`Specified role '${role}' is not configured in system`, 404, 'ROLE_NOT_FOUND'));
+    }
+
+    let deptId = null;
+    if (roleDoc.name === 'Department Officer') {
+      if (!department) {
+        return next(new AppError('Department ID is required for Department Officers', 400, 'BAD_REQUEST'));
+      }
+      const dept = await DepartmentRepository.findById(department);
+      if (!dept) {
+        return next(new AppError('Department not found', 404, 'DEPARTMENT_NOT_FOUND'));
+      }
+      deptId = dept._id;
+    }
+
+    const updateFields = {
+      name,
+      phone,
+      role: roleDoc._id,
+      department: deptId
+    };
+
+    const updatedUser = await UserRepository.update(req.params.id, updateFields);
+    const populatedUser = await UserRepository.findByIdWithDetails(updatedUser._id);
+
+    // Log admin activity
+    await ActivityLogRepository.log(
+      req.user._id,
+      'ADMIN_UPDATE_USER',
+      `Admin updated user details for: ${populatedUser.email} (new role: ${roleDoc.name})`,
+      req.ip
+    );
+
+    res.status(200).json({
+      success: true,
+      data: toUserDTO(populatedUser),
+    });
+  } catch (error) {
+    next(error);
   }
-
-  const user = await User.findByIdAndUpdate(req.params.id, updateFields, {
-    new: true,
-    runValidators: true,
-  }).populate('department');
-
-  if (!user) {
-    return next(new ErrorResponse(`User not found with id of ${req.params.id}`, 404));
-  }
-
-  // Log activity
-  await ActivityLog.create({
-    user: req.user._id,
-    action: 'ADMIN_UPDATE_USER',
-    details: `Admin updated user details for: ${user.email} (new role: ${role})`,
-    ipAddress: req.ip,
-  });
-
-  res.status(200).json({
-    success: true,
-    data: user,
-  });
-});
+};
 
 // @desc    Delete user
 // @route   DELETE /api/admin/users/:id
 // @access  Private (Super Admin)
-export const deleteUser = asyncHandler(async (req, res, next) => {
-  const user = await User.findById(req.params.id);
+export const deleteUser = async (req, res, next) => {
+  try {
+    const user = await UserRepository.findById(req.params.id);
+    if (!user) {
+      return next(new AppError(`User not found with id of ${req.params.id}`, 404, 'USER_NOT_FOUND'));
+    }
 
-  if (!user) {
-    return next(new ErrorResponse(`User not found with id of ${req.params.id}`, 404));
+    // Soft delete the user
+    await UserRepository.delete(req.params.id);
+
+    // Log activity
+    await ActivityLogRepository.log(
+      req.user._id,
+      'ADMIN_DELETE_USER',
+      `Admin deleted user profile: ${user.email}`,
+      req.ip
+    );
+
+    res.status(200).json({
+      success: true,
+      data: {},
+    });
+  } catch (error) {
+    next(error);
   }
-
-  await user.deleteOne();
-
-  // Log activity
-  await ActivityLog.create({
-    user: req.user._id,
-    action: 'ADMIN_DELETE_USER',
-    details: `Admin deleted user profile: ${user.email}`,
-    ipAddress: req.ip,
-  });
-
-  res.status(200).json({
-    success: true,
-    data: {},
-  });
-});
+};
 
 // @desc    Get audit logs
 // @route   GET /api/admin/audit-logs
 // @access  Private (Super Admin)
-export const getAuditLogs = asyncHandler(async (req, res, next) => {
-  const logs = await ActivityLog.find()
-    .populate('user', 'name email role')
-    .sort('-createdAt')
-    .limit(100);
+export const getAuditLogs = async (req, res, next) => {
+  try {
+    const logs = await ActivityLogRepository.find({}, 'actor', '', { createdAt: -1 });
+    // Populate actor info manually or via query since ActivityLog has ref to User
+    const populatedLogs = await ActivityLogRepository.model.find()
+      .populate('actor', 'name email role')
+      .sort('-createdAt')
+      .limit(100);
 
-  res.status(200).json({
-    success: true,
-    data: logs,
-  });
-});
+    res.status(200).json({
+      success: true,
+      data: populatedLogs,
+    });
+  } catch (error) {
+    next(error);
+  }
+};
 
 // @desc    Manually override and resolve a permit conflict
 // @route   PUT /api/admin/permits/:id/resolve
 // @access  Private (Super Admin)
-export const resolveConflict = asyncHandler(async (req, res, next) => {
-  const { status, remarks } = req.body; // status: 'Approved' or 'Rejected'
+export const resolveConflict = async (req, res, next) => {
+  try {
+    const { status, remarks } = req.body; // status: 'Approved' or 'Rejected'
 
-  if (!['Approved', 'Rejected'].includes(status)) {
-    return next(new ErrorResponse('Conflict resolution status must be Approved or Rejected', 400));
-  }
+    if (!['Approved', 'Rejected'].includes(status)) {
+      return next(new AppError('Conflict resolution status must be Approved or Rejected', 400, 'BAD_REQUEST'));
+    }
 
-  const permit = await Permit.findById(req.params.id).populate('department');
+    const permit = await PermitRepository.findByIdWithDetails(req.params.id);
+    if (!permit) {
+      return next(new AppError(`Permit not found with id of ${req.params.id}`, 404, 'PERMIT_NOT_FOUND'));
+    }
 
-  if (!permit) {
-    return next(new ErrorResponse(`Permit not found with id of ${req.params.id}`, 404));
-  }
+    if (permit.status !== 'Conflict') {
+      return next(new AppError('This permit is not flagged with a conflict status', 400, 'BAD_REQUEST'));
+    }
 
-  if (permit.status !== 'Conflict') {
-    return next(new ErrorResponse('This permit is not flagged with a conflict status', 400));
-  }
+    permit.status = status;
+    permit.isJointExcavationSuggested = false; // cleared
+    await permit.save();
 
-  permit.status = status;
-  permit.isJointExcavationSuggested = false; // cleared
-  await permit.save();
+    // Log activity
+    await ActivityLogRepository.log(
+      req.user._id,
+      'ADMIN_RESOLVE_CONFLICT',
+      `Admin resolved conflict for permit ${permit._id} with status: ${status}. Remarks: ${remarks || ''}`,
+      req.ip
+    );
 
-  // Log activity
-  await ActivityLog.create({
-    user: req.user._id,
-    action: 'ADMIN_RESOLVE_CONFLICT',
-    details: `Admin resolved conflict for permit ${permit._id} with status: ${status}. Remarks: ${remarks || ''}`,
-    ipAddress: req.ip,
-  });
+    // Notify departments in conflict
+    const io = getIO();
+    if (io) {
+      const notification = await NotificationRepository.create({
+        recipientDepartment: permit.department._id,
+        title: 'Conflict Resolved by Admin',
+        message: `Your permit on ${permit.roadName} previously flagged for conflict has been manually ${status} by Nodal Officer. Remarks: ${remarks || ''}`,
+        type: 'PermitStatus',
+        metadata: { permitId: permit._id },
+      });
 
-  // Notify departments in conflict
-  const io = getIO();
-  if (io) {
-    const notification = await Notification.create({
-      recipientDepartment: permit.department._id,
-      title: 'Conflict Resolved by Admin',
-      message: `Your permit on ${permit.roadName} previously flagged for conflict has been manually ${status} by Nodal Officer. Remarks: ${remarks || ''}`,
-      type: 'Permit',
-      metadata: { permitId: permit._id },
+      io.to(`dept_${permit.department._id.toString()}`).emit('notification', notification);
+      io.emit('permit_updated', permit);
+    }
+
+    res.status(200).json({
+      success: true,
+      data: permit,
     });
-
-    io.to(`dept_${permit.department._id.toString()}`).emit('notification', notification);
-    io.emit('permit_updated', permit);
+  } catch (error) {
+    next(error);
   }
-
-  res.status(200).json({
-    success: true,
-    data: permit,
-  });
-});
+};

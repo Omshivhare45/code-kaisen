@@ -1,83 +1,99 @@
-import Notification from '../models/Notification.js';
-import asyncHandler from '../utils/asyncHandler.js';
+import NotificationRepository from '../repositories/NotificationRepository.js';
+import AppError from '../utils/appError.js';
 
 // @desc    Get user notifications
 // @route   GET /api/notifications
 // @access  Private
-export const getNotifications = asyncHandler(async (req, res, next) => {
-  const userId = req.user._id;
-  const deptId = req.user.department?._id || null;
+export const getNotifications = async (req, res, next) => {
+  try {
+    const userId = req.user._id;
+    const deptId = req.user.department?._id || null;
+    const roleName = req.user.role && typeof req.user.role === 'object' ? req.user.role.name : req.user.role;
 
-  const queryConditions = [
-    { recipient: userId }
-  ];
+    const queryConditions = [
+      { recipient: userId }
+    ];
 
-  // If officer, also get notifications for their department
-  if (req.user.role === 'Department Officer' && deptId) {
-    queryConditions.push({ recipientDepartment: deptId });
+    if (roleName === 'Department Officer' && deptId) {
+      queryConditions.push({ recipientDepartment: deptId });
+    }
+
+    if (roleName === 'Super Admin') {
+      queryConditions.push({ type: 'Conflict' });
+    }
+
+    const notifications = await NotificationRepository.find(
+      { $or: queryConditions },
+      '',
+      '',
+      { createdAt: -1 }
+    );
+
+    res.status(200).json({
+      success: true,
+      data: notifications,
+    });
+  } catch (error) {
+    next(error);
   }
-
-  // Super admins see conflict alerts
-  if (req.user.role === 'Super Admin') {
-    queryConditions.push({ type: 'Conflict' });
-    queryConditions.push({ recipient: null, recipientDepartment: null });
-  }
-
-  const notifications = await Notification.find({
-    $or: queryConditions,
-  }).sort('-createdAt').limit(50);
-
-  res.status(200).json({
-    success: true,
-    data: notifications,
-  });
-});
+};
 
 // @desc    Mark single notification as read
 // @route   PUT /api/notifications/:id/read
 // @access  Private
-export const markRead = asyncHandler(async (req, res, next) => {
-  const notification = await Notification.findByIdAndUpdate(
-    req.params.id,
-    { read: true },
-    { new: true }
-  );
+export const markRead = async (req, res, next) => {
+  try {
+    const notification = await NotificationRepository.findById(req.params.id);
+    if (!notification) {
+      return next(new AppError('Notification not found', 404, 'NOT_FOUND'));
+    }
 
-  res.status(200).json({
-    success: true,
-    data: notification,
-  });
-});
+    notification.isRead = true;
+    await notification.save();
+
+    res.status(200).json({
+      success: true,
+      data: notification,
+    });
+  } catch (error) {
+    next(error);
+  }
+};
 
 // @desc    Mark all notifications as read
 // @route   PUT /api/notifications/read-all
 // @access  Private
-export const markAllRead = asyncHandler(async (req, res, next) => {
-  const userId = req.user._id;
-  const deptId = req.user.department?._id || null;
+export const markAllRead = async (req, res, next) => {
+  try {
+    const userId = req.user._id;
+    const deptId = req.user.department?._id || null;
+    const roleName = req.user.role && typeof req.user.role === 'object' ? req.user.role.name : req.user.role;
 
-  const queryConditions = [
-    { recipient: userId }
-  ];
+    const queryConditions = [
+      { recipient: userId }
+    ];
 
-  if (req.user.role === 'Department Officer' && deptId) {
-    queryConditions.push({ recipientDepartment: deptId });
+    if (roleName === 'Department Officer' && deptId) {
+      queryConditions.push({ recipientDepartment: deptId });
+    }
+
+    if (roleName === 'Super Admin') {
+      queryConditions.push({ type: 'Conflict' });
+    }
+
+    await NotificationRepository.model.updateMany(
+      {
+        $or: queryConditions,
+        isRead: false,
+      },
+      { isRead: true }
+    );
+
+    res.status(200).json({
+      success: true,
+      data: 'All notifications marked as read',
+    });
+  } catch (error) {
+    next(error);
   }
-
-  if (req.user.role === 'Super Admin') {
-    queryConditions.push({ type: 'Conflict' });
-  }
-
-  await Notification.updateMany(
-    {
-      $or: queryConditions,
-      read: false,
-    },
-    { read: true }
-  );
-
-  res.status(200).json({
-    success: true,
-    data: 'All notifications marked as read',
-  });
-});
+};

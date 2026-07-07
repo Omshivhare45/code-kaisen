@@ -1,33 +1,53 @@
-import ErrorResponse from '../utils/errorResponse.js';
+import AppError from '../utils/appError.js';
+import logger from '../utils/logger.js';
 
 const errorHandler = (err, req, res, next) => {
   let error = { ...err };
   error.message = err.message;
+  error.statusCode = err.statusCode || 500;
+  error.errorCode = err.errorCode || 'INTERNAL_SERVER_ERROR';
 
-  // Log to console for dev
-  console.error(err);
+  // Log detailed error stack using Winston
+  logger.error(`${error.errorCode} - ${error.message} - ${req.originalUrl} - ${req.method} - ${req.ip}\nStack: ${err.stack}`);
 
   // Mongoose bad ObjectId
   if (err.name === 'CastError') {
-    const message = `Resource not found with id of ${err.value}`;
-    error = new ErrorResponse(message, 404);
+    const message = `Resource not found with ID of ${err.value}`;
+    error = new AppError(message, 404, 'RESOURCE_NOT_FOUND');
   }
 
   // Mongoose duplicate key
   if (err.code === 11000) {
-    const message = 'Duplicate field value entered';
-    error = new ErrorResponse(message, 400);
+    const field = Object.keys(err.keyValue || {})[0] || 'field';
+    const message = `Duplicate field value entered for ${field}`;
+    error = new AppError(message, 400, 'DUPLICATE_KEY_ERROR');
   }
 
   // Mongoose validation error
   if (err.name === 'ValidationError') {
-    const message = Object.values(err.errors).map(val => val.message).join(', ');
-    error = new ErrorResponse(message, 400);
+    const details = Object.values(err.errors).map(val => val.message);
+    const message = `Validation failed: ${details.join(', ')}`;
+    error = new AppError(message, 400, 'VALIDATION_ERROR');
+    error.details = details;
   }
 
-  res.status(error.statusCode || 500).json({
+  // JWT expired
+  if (err.name === 'TokenExpiredError') {
+    error = new AppError('Your session has expired. Please login again.', 401, 'TOKEN_EXPIRED');
+  }
+
+  // JWT invalid signature
+  if (err.name === 'JsonWebTokenError') {
+    error = new AppError('Invalid authentication token. Please login again.', 401, 'INVALID_TOKEN');
+  }
+
+  res.status(error.statusCode).json({
     success: false,
-    error: error.message || 'Server Error',
+    error: {
+      code: error.errorCode,
+      message: error.message,
+      details: error.details || []
+    }
   });
 };
 

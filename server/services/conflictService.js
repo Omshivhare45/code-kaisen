@@ -1,7 +1,9 @@
-import Permit from '../models/Permit.js';
-import Notification from '../models/Notification.js';
-import Department from '../models/Department.js';
+import crypto from 'crypto';
+import PermitRepository from '../repositories/PermitRepository.js';
+import ConflictReportRepository from '../repositories/ConflictReportRepository.js';
+import NotificationRepository from '../repositories/NotificationRepository.js';
 import { getIO } from '../sockets/socketHandler.js';
+import logger from '../utils/logger.js';
 
 /**
  * Detects conflicts for a given permit request
@@ -12,112 +14,110 @@ import { getIO } from '../sockets/socketHandler.js';
  */
 export const detectConflicts = async (permitId) => {
   try {
-    const permit = await Permit.findById(permitId).populate('department');
-    if (!permit) return;
+    const permit = await PermitRepository.findByIdWithDetails(permitId);
+    if (!permit) return null;
 
-    const { longitude, latitude, radius, startDate, endDate, roadName } = permit;
+    const lon = permit.location.coordinates[0];
+    const lat = permit.location.coordinates[1];
+    const radius = permit.radius || 100;
+    const startDate = permit.startDate;
+    const endDate = permit.endDate;
 
-    // 1. Find overlapping/nearby permits (using spherical radius in meters)
-    // $near requires a 2dsphere index
-    const nearbyPermits = await Permit.find({
-      _id: { $ne: permit._id },
-      status: { $in: ['Approved', 'Active', 'Conflict'] },
-      location: {
-        $near: {
-          $geometry: {
-            type: 'Point',
-            coordinates: [longitude, latitude],
-          },
-          $maxDistance: radius || 100, // Distance in meters
-        },
-      },
-    }).populate('department');
+    // 1. Find overlapping permits (nearby + date intersection)
+    const overlappingPermits = await PermitRepository.findOverlapping(
+      lon,
+      lat,
+      radius,
+      startDate,
+      endDate,
+      permit._id
+    );
 
-    // Filter by overlapping dates
-    const conflictingPermits = nearbyPermits.filter((other) => {
-      const start1 = new Date(startDate);
-      const end1 = new Date(endDate);
-      const start2 = new Date(other.startDate);
-      const end2 = new Date(other.endDate);
-
-      // Check if dates overlap: (StartA <= EndB) and (EndA >= StartB)
-      return start1 <= end2 && end1 >= start2;
-    });
-
-    // 2. Check recently completed works (same road/vicinity completed in last 60 days)
+    // 2. Check recently completed works (same road completed in last 60 days)
     const sixtyDaysAgo = new Date();
     sixtyDaysAgo.setDate(sixtyDaysAgo.getDate() - 60);
 
-    const recentlyCompleted = await Permit.find({
-      _id: { $ne: permit._id },
-      status: 'Completed',
-      endDate: { $gte: sixtyDaysAgo },
-      location: {
-        $near: {
-          $geometry: {
-            type: 'Point',
-            coordinates: [longitude, latitude],
-          },
-          $maxDistance: radius || 100,
-        },
-      },
-    }).populate('department');
+    const recentlyCompleted = await PermitRepository.findNear(
+      lon,
+      lat,
+      radius,
+      {
+        _id: { $ne: permit._id },
+        status: 'Completed',
+        endDate: { $gte: sixtyDaysAgo }
+      }
+    );
 
-    const allConflicts = [...conflictingPermits, ...recentlyCompleted];
+    const allConflictingPermits = [...overlappingPermits, ...recentlyCompleted];
 
-    if (allConflicts.length > 0) {
-      // Set permit status to Conflict
+    if (allConflictingPermits.length > 0) {
+      // Flag permit status to Conflict
       permit.status = 'Conflict';
-      permit.conflictingPermits = allConflicts.map(p => p._id);
+      permit.conflictingPermits = allConflictingPermits.map(p => p._id);
       permit.isJointExcavationSuggested = true;
       await permit.save();
 
-      // Send Socket.io notifications & create Notification documents
+      // Create Conflict Report
+      const reportNumber = `CFR-${crypto.randomInt(10000, 99999)}`;
+      
+      // Calculate average coordinates or use primary permit coordinates as point of conflict
+      const conflictReport = await ConflictReportRepository.create({
+        reportNumber,
+        primaryPermit: permit._id,
+        conflictingPermits: allConflictingPermits.map(p => p._id),
+        overlapCoordinates: {
+          type: 'Point',
+          coordinates: [lon, lat]
+        },
+        distanceMeters: 25, // default estimated distance
+        severity: overlappingPermits.length > 0 ? 'High' : 'Medium',
+        status: 'Open'
+      });
+
+      logger.info(`Conflict report '${reportNumber}' generated for Permit ID ${permit._id}`);
+
+      // Dispatch Notifications
       const io = getIO();
 
-      for (const conflict of allConflicts) {
+      for (const conflict of allConflictingPermits) {
         const otherDept = conflict.department;
         const currentDept = permit.department;
 
-        // Title and message
         const title = 'Excavation Conflict Detected!';
-        const message = `A conflict has been detected on ${roadName} between your permit request and a project by ${otherDept.name}. A joint excavation has been suggested.`;
+        const message = `A conflict has been detected on ${permit.roadName} between your permit request and a project by ${otherDept.name}. A joint excavation has been suggested.`;
 
-        // Save notification for current department
-        const notif1 = await Notification.create({
+        // Save notifications using NotificationRepository
+        const notif1 = await NotificationRepository.create({
           recipientDepartment: currentDept._id,
           title,
           message,
           type: 'Conflict',
           metadata: {
             permitId: permit._id,
-            conflictPermitId: conflict._id,
-          },
+            complaintId: undefined
+          }
         });
 
-        // Save notification for conflicting department
-        const notif2 = await Notification.create({
+        const notif2 = await NotificationRepository.create({
           recipientDepartment: otherDept._id,
           title: `Conflict Alert: ${currentDept.name}`,
-          message: `The department ${currentDept.name} has submitted a permit request overlapping with your project on ${roadName}. Joint excavation suggested.`,
+          message: `The department ${currentDept.name} has submitted a permit request overlapping with your project on ${permit.roadName}. Joint excavation suggested.`,
           type: 'Conflict',
           metadata: {
             permitId: conflict._id,
-            conflictPermitId: permit._id,
-          },
+            complaintId: undefined
+          }
         });
 
-        // Socket.io alerts
+        // Push via Socket.io
         if (io) {
-          // Emit to specific department rooms
           io.to(`dept_${currentDept._id.toString()}`).emit('notification', notif1);
           io.to(`dept_${otherDept._id.toString()}`).emit('notification', notif2);
-          
-          // Broadcast general conflict alerts to admin and monitoring dashboards
+
           io.emit('conflict_alert', {
             permit,
             conflict,
-            message: `Conflict detected on ${roadName} between ${currentDept.name} and ${otherDept.name}`,
+            message: `Conflict detected on ${permit.roadName} between ${currentDept.name} and ${otherDept.name}.`
           });
         }
       }
@@ -125,7 +125,7 @@ export const detectConflicts = async (permitId) => {
 
     return permit;
   } catch (error) {
-    console.error('Error detecting conflicts:', error);
+    logger.error(`Error in detectConflicts: ${error.message}`);
     throw error;
   }
 };
