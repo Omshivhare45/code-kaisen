@@ -3,10 +3,16 @@ import http from 'http';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import cors from 'cors';
+import helmet from 'helmet';
+import mongoSanitize from 'express-mongo-sanitize';
+import morgan from 'morgan';
 import dotenv from 'dotenv';
+
 import connectDB from './config/db.js';
 import errorHandler from './middleware/error.js';
 import { initSockets } from './sockets/socketHandler.js';
+import { apiLimiter, xssSanitizer } from './middleware/security.js';
+import logger from './utils/logger.js';
 
 // Route imports
 import authRoutes from './routes/authRoutes.js';
@@ -26,14 +32,32 @@ connectDB();
 const app = express();
 const server = http.createServer(app);
 
-// Enable CORS
+// 1. Logging Middleware (morgan piped to winston)
+const morganMiddleware = morgan(
+  ':method :url :status :res[content-length] - :response-time ms',
+  { stream: { write: (message) => logger.http(message.trim()) } }
+);
+app.use(morganMiddleware);
+
+// 2. Security Headers (Helmet)
+app.use(helmet());
+
+// 3. Enable CORS
 app.use(cors({
-  origin: '*', // Adjust for production deployment
+  origin: '*', // Adjust for specific staging/production domains
   methods: ['GET', 'POST', 'PUT', 'DELETE'],
 }));
 
-// Body parser
-app.use(express.json());
+// 4. Body parsers
+app.use(express.json({ limit: '10kb' })); // Max payload limit
+app.use(express.urlencoded({ extended: true, limit: '10kb' }));
+
+// 5. Data Sanitization (NoSQL injection & XSS)
+app.use(mongoSanitize());
+app.use(xssSanitizer);
+
+// 6. Global Rate Limiter for all API routes
+app.use('/api', apiLimiter);
 
 // Set static folder for file uploads
 const __filename = fileURLToPath(import.meta.url);
@@ -63,5 +87,5 @@ initSockets(server);
 const PORT = process.env.PORT || 5000;
 
 server.listen(PORT, () => {
-  console.log(`Server running in ${process.env.NODE_ENV || 'development'} mode on port ${PORT}`);
+  logger.info(`Server running in ${process.env.NODE_ENV || 'development'} mode on port ${PORT}`);
 });
