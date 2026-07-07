@@ -1,29 +1,12 @@
 import mongoose from 'mongoose';
 
-const ActivityLogSchema = new mongoose.Schema(
-  {
-    user: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: 'User',
-      required: false, // can be null for anonymous auth actions
-    },
-    action: {
-      type: String,
-      required: true,
-      trim: true,
-    },
-    details: {
-      type: String,
-      required: true,
-    },
-    ipAddress: {
-      type: String,
-      default: '',
-    },
-  },
-  {
-    timestamps: { createdAt: true, updatedAt: false }, // only track creation
-  }
-);
+const activityLogSchema = new mongoose.Schema({
+  actor: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+  action: { type: String, required: true }, // e.g. "LOGIN_SUCCESS", "MAP_QUERY"
+  details: { type: String },
+  ipAddress: { type: String, required: true }
+}, { timestamps: true });
 
-export default mongoose.model('ActivityLog', ActivityLogSchema);
+activityLogSchema.index({ actor: 1, createdAt: 1 });
+
+export default mongoose.model('ActivityLog', activityLogSchema);

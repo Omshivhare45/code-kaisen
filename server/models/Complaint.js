@@ -1,97 +1,29 @@
 import mongoose from 'mongoose';
+import softDeletePlugin from '../plugins/softDelete.js';
 
-const ComplaintSchema = new mongoose.Schema(
-  {
-    citizen: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: 'User',
-      required: true,
-    },
-    photoUrl: {
-      type: String,
-      default: '',
-    },
-    description: {
-      type: String,
-      required: [true, 'Please add a description'],
-    },
-    latitude: {
-      type: Number,
-      required: [true, 'Please add latitude'],
-    },
-    longitude: {
-      type: Number,
-      required: [true, 'Please add longitude'],
-    },
-    location: {
-      type: {
-        type: String,
-        enum: ['Point'],
-        default: 'Point',
-      },
-      coordinates: {
-        type: [Number], // [longitude, latitude]
-        required: true,
-      },
-    },
-    ward: {
-      type: String,
-      required: [true, 'Please add ward'],
-    },
-    complaintType: {
-      type: String,
-      required: [true, 'Please select a complaint type'],
-      enum: ['Road Digging', 'Pothole', 'Water Leakage', 'Cable Damage', 'Open Trench', 'Unauthorized Digging', 'Other'],
-    },
-    department: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: 'Department',
-      required: true, // Assign automatically based on type or triage rules
-    },
-    priority: {
-      type: String,
-      enum: ['Low', 'Medium', 'High'],
-      default: 'Medium',
-    },
-    status: {
-      type: String,
-      enum: ['Received', 'Assigned', 'In Progress', 'Resolved'],
-      default: 'Received',
-    },
-    statusTimeline: [
-      {
-        status: {
-          type: String,
-          enum: ['Received', 'Assigned', 'In Progress', 'Resolved'],
-        },
-        updatedAt: {
-          type: Date,
-          default: Date.now,
-        },
-        remarks: {
-          type: String,
-          default: '',
-        },
-      },
-    ],
-    rating: {
-      score: {
-        type: Number,
-        min: 1,
-        max: 5,
-      },
-      comment: {
-        type: String,
-        default: '',
-      },
-    },
+const complaintSchema = new mongoose.Schema({
+  complaintNumber: { type: String, required: true, unique: true },
+  citizen: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+  department: { type: mongoose.Schema.Types.ObjectId, ref: 'Department', required: true },
+  complaintType: { type: String, required: true, enum: ['Unauthorized Digging', 'Road Damage', 'Water Leakage', 'Cable Exposure', 'Debris Accumulation', 'Other'] },
+  description: { type: String, required: true },
+  location: {
+    type: { type: String, enum: ['Point'], required: true, default: 'Point' },
+    coordinates: { type: [Number], required: true }
   },
-  {
-    timestamps: true,
-  }
-);
+  ward: { type: mongoose.Schema.Types.ObjectId, ref: 'Ward', required: true },
+  priority: { type: String, enum: ['Low', 'Medium', 'High', 'Critical'], default: 'Medium' },
+  status: { type: String, enum: ['Received', 'Assigned', 'In Progress', 'Resolved', 'Rejected'], default: 'Received' },
+  isSlaViolated: { type: Boolean, default: false },
+  isDeleted: { type: Boolean, default: false }
+}, { timestamps: true });
 
-// Create index on location for geographic searches
-ComplaintSchema.index({ location: '2dsphere' });
+complaintSchema.index({ location: '2dsphere' });
+complaintSchema.index({ status: 1 });
+complaintSchema.index({ department: 1 });
+complaintSchema.index({ isSlaViolated: 1 });
+complaintSchema.index({ isDeleted: 1 });
 
-export default mongoose.model('Complaint', ComplaintSchema);
+complaintSchema.plugin(softDeletePlugin);
+
+export default mongoose.model('Complaint', complaintSchema);

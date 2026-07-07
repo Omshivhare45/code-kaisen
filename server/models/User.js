@@ -2,84 +2,45 @@ import mongoose from 'mongoose';
 import bcrypt from 'bcryptjs';
 import crypto from 'crypto';
 
-const UserSchema = new mongoose.Schema(
-  {
-    name: {
-      type: String,
-      required: [true, 'Please add a name'],
-    },
-    email: {
-      type: String,
-      required: [true, 'Please add an email'],
-      unique: true,
-      match: [
-        /^\w+([\.-]?\w+)*@\w+([\.-]?\w+)*(\.\w{2,3})+$/,
-        'Please add a valid email',
-      ],
-    },
-    password: {
-      type: String,
-      required: [true, 'Please add a password'],
-      minlength: 6,
-      select: false,
-    },
-    role: {
-      type: String,
-      enum: ['Citizen', 'Department Officer', 'Super Admin'],
-      default: 'Citizen',
-    },
-    department: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: 'Department',
-      required: function() {
-        return this.role === 'Department Officer';
-      },
-    },
-    phone: {
-      type: String,
-      required: [true, 'Please add a phone number'],
-    },
-    ward: {
-      type: String,
-      default: '',
-    },
-    resetPasswordToken: String,
-    resetPasswordExpire: Date,
-  },
-  {
-    timestamps: true,
-  }
-);
+const userSchema = new mongoose.Schema({
+  name: { type: String, required: true, trim: true },
+  email: { type: String, required: true, unique: true, match: [/^\w+([\.-]?\w+)*@\w+([\.-]?\w+)*(\.\w{2,3})+$/, 'Invalid email'] },
+  password: { type: String, required: true, select: false },
+  role: { type: mongoose.Schema.Types.ObjectId, ref: 'Role', required: true },
+  department: { type: mongoose.Schema.Types.ObjectId, ref: 'Department' }, // Null for Citizens
+  phone: { type: String, required: true },
+  ward: { type: mongoose.Schema.Types.ObjectId, ref: 'Ward' }, // References Ward
+  isVerified: { type: Boolean, default: false },
+  isActive: { type: Boolean, default: true },
+  isDeleted: { type: Boolean, default: false },
+  passwordResetToken: String,
+  passwordResetExpires: Date
+}, { timestamps: true });
 
-// Encrypt password using bcrypt
-UserSchema.pre('save', async function(next) {
+userSchema.index({ department: 1 });
+userSchema.index({ isDeleted: 1 });
+
+// Hashing hook before saving
+userSchema.pre('save', async function(next) {
   if (!this.isModified('password')) {
-    next();
+    return next();
   }
   const salt = await bcrypt.genSalt(10);
   this.password = await bcrypt.hash(this.password, salt);
+  next();
 });
 
-// Match user entered password to hashed password in database
-UserSchema.methods.matchPassword = async function(enteredPassword) {
+// Compare password
+userSchema.methods.matchPassword = async function(enteredPassword) {
   return await bcrypt.compare(enteredPassword, this.password);
 };
 
-// Generate and hash password token
-UserSchema.methods.getResetPasswordToken = function() {
-  // Generate token
+// Generate password reset token
+userSchema.methods.getResetPasswordToken = function() {
   const resetToken = crypto.randomBytes(20).toString('hex');
-
-  // Hash token and set to resetPasswordToken field
-  this.resetPasswordToken = crypto
-    .createHash('sha256')
-    .update(resetToken)
-    .digest('hex');
-
-  // Set expire
-  this.resetPasswordExpire = Date.now() + 10 * 60 * 1000; // 10 minutes
-
+  this.passwordResetToken = crypto.createHash('sha256').update(resetToken).digest('hex');
+  this.passwordResetExpires = Date.now() + 10 * 60 * 1000; // 10 minutes
   return resetToken;
 };
 
-export default mongoose.model('User', UserSchema);
+export default mongoose.model('User', userSchema);
