@@ -1,5 +1,7 @@
-import nodemailer from 'dotenv';
+import dotenv from 'dotenv';
 import nodemailerClient from 'nodemailer';
+
+dotenv.config();
 
 const sendEmail = async (options) => {
   const isSmtpConfigured = !!(
