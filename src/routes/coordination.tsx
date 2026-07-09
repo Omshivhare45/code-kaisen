@@ -34,7 +34,7 @@ function CoordinationPage() {
   });
 
   const create = useMutation({
-    mutationFn: async (payload: Record<string, unknown>) => {
+    mutationFn: async (payload: any) => {
       const { error } = await supabase.from("dept_works").insert(payload);
       if (error) throw error;
     },
@@ -122,9 +122,9 @@ function hasOverlap(list: Array<{ department: string; starts_on: string; ends_on
   return false;
 }
 
-function WorkForm({ onSubmit }: { onSubmit: (v: Record<string, unknown>) => void }) {
+function WorkForm({ onSubmit }: { onSubmit: (v: any) => void }) {
   const [form, setForm] = useState({
-    department: DEPARTMENTS[0],
+    department: DEPARTMENTS[0] as string,
     title: "",
     description: "",
     area: BHOPAL_AREAS[0].name,
@@ -141,7 +141,7 @@ function WorkForm({ onSubmit }: { onSubmit: (v: Record<string, unknown>) => void
       className="mt-6 grid gap-3 rounded-xl border border-border bg-card p-5 md:grid-cols-3"
     >
       <Field label="Department">
-        <select value={form.department} onChange={(e) => setForm({ ...form, department: e.target.value as typeof DEPARTMENTS[number] })} className={inputCls}>
+        <select value={form.department} onChange={(e) => setForm({ ...form, department: e.target.value })} className={inputCls}>
           {DEPARTMENTS.map((d) => <option key={d} value={d}>{d}</option>)}
         </select>
       </Field>

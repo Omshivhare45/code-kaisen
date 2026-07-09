@@ -52,15 +52,15 @@ function AuthPage() {
   }
 
   async function google() {
-    const { lovable } = await import("@/integrations/lovable/index").catch(() => ({ lovable: null as any }));
-    if (!lovable) {
-      toast.error("Google sign-in is not configured yet.");
-      return;
+    try {
+      const mod: any = await import(/* @vite-ignore */ "@/integrations/lovable/index");
+      const res = await mod.lovable.auth.signInWithOAuth("google", {
+        redirect_uri: window.location.origin,
+      });
+      if (res?.error) toast.error(res.error.message ?? "Google sign-in failed");
+    } catch {
+      toast.error("Google sign-in isn't set up yet. Use email/password.");
     }
-    const res = await lovable.auth.signInWithOAuth("google", {
-      redirect_uri: window.location.origin,
-    });
-    if (res.error) toast.error(res.error.message ?? "Google sign-in failed");
   }
 
   return (

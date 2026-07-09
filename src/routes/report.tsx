@@ -22,7 +22,7 @@ function ReportPage() {
   const [form, setForm] = useState({
     title: "",
     description: "",
-    category: CATEGORIES[0].value,
+    category: CATEGORIES[0].value as string,
     severity: "medium",
     area: BHOPAL_AREAS[0].name,
   });
