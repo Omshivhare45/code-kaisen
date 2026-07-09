@@ -11,6 +11,7 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as ReportsRouteImport } from './routes/reports'
 import { Route as ReportRouteImport } from './routes/report'
+import { Route as DashboardRouteImport } from './routes/dashboard'
 import { Route as CoordinationRouteImport } from './routes/coordination'
 import { Route as AuthRouteImport } from './routes/auth'
 import { Route as IndexRouteImport } from './routes/index'
@@ -23,6 +24,11 @@ const ReportsRoute = ReportsRouteImport.update({
 const ReportRoute = ReportRouteImport.update({
   id: '/report',
   path: '/report',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const DashboardRoute = DashboardRouteImport.update({
+  id: '/dashboard',
+  path: '/dashboard',
   getParentRoute: () => rootRouteImport,
 } as any)
 const CoordinationRoute = CoordinationRouteImport.update({
@@ -45,6 +51,7 @@ export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/auth': typeof AuthRoute
   '/coordination': typeof CoordinationRoute
+  '/dashboard': typeof DashboardRoute
   '/report': typeof ReportRoute
   '/reports': typeof ReportsRoute
 }
@@ -52,6 +59,7 @@ export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/auth': typeof AuthRoute
   '/coordination': typeof CoordinationRoute
+  '/dashboard': typeof DashboardRoute
   '/report': typeof ReportRoute
   '/reports': typeof ReportsRoute
 }
@@ -60,21 +68,36 @@ export interface FileRoutesById {
   '/': typeof IndexRoute
   '/auth': typeof AuthRoute
   '/coordination': typeof CoordinationRoute
+  '/dashboard': typeof DashboardRoute
   '/report': typeof ReportRoute
   '/reports': typeof ReportsRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/auth' | '/coordination' | '/report' | '/reports'
+  fullPaths:
+    | '/'
+    | '/auth'
+    | '/coordination'
+    | '/dashboard'
+    | '/report'
+    | '/reports'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/auth' | '/coordination' | '/report' | '/reports'
-  id: '__root__' | '/' | '/auth' | '/coordination' | '/report' | '/reports'
+  to: '/' | '/auth' | '/coordination' | '/dashboard' | '/report' | '/reports'
+  id:
+    | '__root__'
+    | '/'
+    | '/auth'
+    | '/coordination'
+    | '/dashboard'
+    | '/report'
+    | '/reports'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AuthRoute: typeof AuthRoute
   CoordinationRoute: typeof CoordinationRoute
+  DashboardRoute: typeof DashboardRoute
   ReportRoute: typeof ReportRoute
   ReportsRoute: typeof ReportsRoute
 }
@@ -93,6 +116,13 @@ declare module '@tanstack/react-router' {
       path: '/report'
       fullPath: '/report'
       preLoaderRoute: typeof ReportRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/dashboard': {
+      id: '/dashboard'
+      path: '/dashboard'
+      fullPath: '/dashboard'
+      preLoaderRoute: typeof DashboardRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/coordination': {
@@ -123,6 +153,7 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AuthRoute: AuthRoute,
   CoordinationRoute: CoordinationRoute,
+  DashboardRoute: DashboardRoute,
   ReportRoute: ReportRoute,
   ReportsRoute: ReportsRoute,
 }
