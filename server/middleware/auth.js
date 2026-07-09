@@ -24,7 +24,7 @@ export const protect = asyncHandler(async (req, res, next) => {
     // Verify token
     const decoded = jwt.verify(token, process.env.JWT_SECRET || 'setu_super_secret_jwt_key_2026');
 
-    req.user = await User.findById(decoded.id).populate('department');
+    req.user = await User.findById(decoded.id).populate('role department');
 
     if (!req.user) {
       return next(new ErrorResponse('User not found with this token', 401));
@@ -42,10 +42,16 @@ export const authorize = (...roles) => {
     if (!req.user) {
       return next(new ErrorResponse('Not authorized to access this route', 401));
     }
-    if (!roles.includes(req.user.role)) {
+    const roleName = req.user.role && typeof req.user.role === 'object' ? req.user.role.name : req.user.role;
+    if (!roleName) {
+      return next(new ErrorResponse('Not authorized to access this route', 401));
+    }
+    const userRoleUpper = String(roleName).toUpperCase();
+    const allowedRolesUpper = roles.map(r => r.toUpperCase());
+    if (!allowedRolesUpper.includes(userRoleUpper)) {
       return next(
         new ErrorResponse(
-          `User role ${req.user.role} is not authorized to access this route`,
+          `User role ${roleName} is not authorized to access this route`,
           403
         )
       );

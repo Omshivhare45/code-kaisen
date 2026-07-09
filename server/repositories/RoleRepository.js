@@ -7,7 +7,7 @@ class RoleRepository extends BaseRepository {
   }
 
   async findByName(name) {
-    return this.model.findOne({ name: name.toUpperCase() }).populate('permissions');
+    return this.model.findOne({ name: new RegExp(`^${name}$`, 'i') }).populate('permissions');
   }
 
   async findWithPermissions(filter = {}) {

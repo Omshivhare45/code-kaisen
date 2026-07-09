@@ -48,7 +48,21 @@ export const AuthProvider = ({ children }) => {
       setUser(newUser);
       return { success: true };
     } catch (err) {
-      const errMsg = err.response?.data?.error || 'Registration failed';
+      let errMsg = 'Unable to register.';
+      if (err.response?.data) {
+        if (err.response.data.message) {
+          errMsg = err.response.data.message;
+          if (Array.isArray(err.response.data.errors) && err.response.data.errors.length > 0) {
+            errMsg += `: ${err.response.data.errors.join(', ')}`;
+          }
+        } else if (err.response.data.error) {
+          errMsg = typeof err.response.data.error === 'string'
+            ? err.response.data.error
+            : (err.response.data.error.message || errMsg);
+        }
+      } else if (err.message) {
+        errMsg = err.message;
+      }
       setError(errMsg);
       return { success: false, error: errMsg };
     } finally {
@@ -68,7 +82,21 @@ export const AuthProvider = ({ children }) => {
       setUser(newUser);
       return { success: true };
     } catch (err) {
-      const errMsg = err.response?.data?.error || 'Invalid credentials';
+      let errMsg = 'Invalid credentials';
+      if (err.response?.data) {
+        if (err.response.data.message) {
+          errMsg = err.response.data.message;
+          if (Array.isArray(err.response.data.errors) && err.response.data.errors.length > 0) {
+            errMsg += `: ${err.response.data.errors.join(', ')}`;
+          }
+        } else if (err.response.data.error) {
+          errMsg = typeof err.response.data.error === 'string'
+            ? err.response.data.error
+            : (err.response.data.error.message || errMsg);
+        }
+      } else if (err.message) {
+        errMsg = err.message;
+      }
       setError(errMsg);
       return { success: false, error: errMsg };
     } finally {
@@ -91,7 +119,22 @@ export const AuthProvider = ({ children }) => {
       setUser(res.data.data);
       return { success: true };
     } catch (err) {
-      return { success: false, error: err.response?.data?.error || 'Failed to update profile' };
+      let errMsg = 'Failed to update profile';
+      if (err.response?.data) {
+        if (err.response.data.message) {
+          errMsg = err.response.data.message;
+          if (Array.isArray(err.response.data.errors) && err.response.data.errors.length > 0) {
+            errMsg += `: ${err.response.data.errors.join(', ')}`;
+          }
+        } else if (err.response.data.error) {
+          errMsg = typeof err.response.data.error === 'string'
+            ? err.response.data.error
+            : (err.response.data.error.message || errMsg);
+        }
+      } else if (err.message) {
+        errMsg = err.message;
+      }
+      return { success: false, error: errMsg };
     }
   };
 

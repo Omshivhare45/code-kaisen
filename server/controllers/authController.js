@@ -4,6 +4,7 @@ import DepartmentRepository from '../repositories/DepartmentRepository.js';
 import RoleRepository from '../repositories/RoleRepository.js';
 import SessionRepository from '../repositories/SessionRepository.js';
 import ActivityLogRepository from '../repositories/ActivityLogRepository.js';
+import WardRepository from '../repositories/WardRepository.js';
 import AppError from '../utils/appError.js';
 import { sendTokenResponse } from '../utils/jwt.js';
 import sendEmail from '../services/emailService.js';
@@ -29,8 +30,10 @@ export const register = async (req, res, next) => {
       return next(new AppError(`Specified role '${role}' is not configured in system`, 404, 'ROLE_NOT_FOUND'));
     }
 
+    const roleNameUpper = roleDoc.name.toUpperCase();
+
     let deptId = null;
-    if (roleDoc.name === 'Department Officer') {
+    if (roleNameUpper === 'DEPARTMENT OFFICER') {
       if (!departmentCode) {
         return next(new AppError('Department code is required for Department Officers', 400, 'BAD_REQUEST'));
       }
@@ -41,6 +44,24 @@ export const register = async (req, res, next) => {
       deptId = dept._id;
     }
 
+    let wardId = null;
+    if (roleNameUpper === 'CITIZEN') {
+      if (!ward) {
+        return next(new AppError('Ward is required for Citizens', 400, 'BAD_REQUEST'));
+      }
+      let wardDoc;
+      const isMongoId = /^[0-9a-fA-F]{24}$/.test(ward);
+      if (isMongoId) {
+        wardDoc = await WardRepository.findById(ward);
+      } else {
+        wardDoc = await WardRepository.findOne({ name: ward });
+      }
+      if (!wardDoc) {
+        return next(new AppError(`Ward '${ward}' not found`, 404, 'WARD_NOT_FOUND'));
+      }
+      wardId = wardDoc._id;
+    }
+
     // Create user
     const user = await UserRepository.create({
       name,
@@ -48,7 +69,7 @@ export const register = async (req, res, next) => {
       password,
       role: roleDoc._id,
       phone,
-      ward: roleDoc.name === 'Citizen' ? ward : undefined,
+      ward: roleNameUpper === 'CITIZEN' ? wardId : undefined,
       department: deptId,
       isVerified: true // Default to true for testing
     });

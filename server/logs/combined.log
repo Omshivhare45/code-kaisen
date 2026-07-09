@@ -1,0 +1,9 @@
+{"level":"info","message":"Server running in development mode on port 5000","timestamp":"2026-07-07 21:54:34"}
+{"level":"error","message":"INTERNAL_SERVER_ERROR - Operation `departments.find()` buffering timed out after 10000ms - /api/departments - GET - ::1\nStack: MongooseError: Operation `departments.find()` buffering timed out after 10000ms\n    at Timeout.<anonymous> (C:\\Users\\Asus\\OneDrive\\Desktop\\Code_Kaisen\\code-kaisen\\server\\node_modules\\mongoose\\lib\\drivers\\node-mongodb-native\\collection.js:187:23)\n    at listOnTimeout (node:internal/timers:605:17)\n    at process.processTimers (node:internal/timers:541:7)","timestamp":"2026-07-07 21:55:02"}
+{"level":"http","message":"GET /api/departments 500 148 - 10039.868 ms","timestamp":"2026-07-07 21:55:02"}
+{"level":"info","message":"Server running in development mode on port 5000","timestamp":"2026-07-09 19:04:35"}
+{"level":"info","message":"Server running in development mode on port 5000","timestamp":"2026-07-09 19:06:14"}
+{"level":"info","message":"Server running in development mode on port 5000","timestamp":"2026-07-09 19:11:34"}
+{"level":"info","message":"Server running in development mode on port 5000","timestamp":"2026-07-09 19:26:26"}
+{"level":"info","message":"Server running in development mode on port 5000","timestamp":"2026-07-09 19:26:54"}
+{"level":"info","message":"Server running in development mode on port 5000","timestamp":"2026-07-09 19:27:13"}

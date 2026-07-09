@@ -43,11 +43,8 @@ const errorHandler = (err, req, res, next) => {
 
   res.status(error.statusCode).json({
     success: false,
-    error: {
-      code: error.errorCode,
-      message: error.message,
-      details: error.details || []
-    }
+    message: error.message,
+    errors: error.details || []
   });
 };
 

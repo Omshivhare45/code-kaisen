@@ -123,6 +123,23 @@ const seedData = async () => {
       },
       {
         zone: zoneMap['South Zone'],
+        name: 'Ward 12 (TT Nagar)',
+        number: 12,
+        boundary: {
+          type: 'Polygon',
+          coordinates: [
+            [
+              [77.3800, 23.2400],
+              [77.4000, 23.2400],
+              [77.4000, 23.2600],
+              [77.3800, 23.2600],
+              [77.3800, 23.2400]
+            ]
+          ]
+        }
+      },
+      {
+        zone: zoneMap['South Zone'],
         name: 'Ward 80 (Kolar)',
         number: 80,
         boundary: {
