@@ -45,6 +45,8 @@ const issueSchema = new mongoose.Schema({
   },
   
   aiSummary: { type: String },
+  aiResolutionPlan: { type: String }, // Step-by-step resolution plan
+  aiSuggestedDepartment: { type: String }, // String name of suggested department
 
 }, { timestamps: true });
 

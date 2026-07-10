@@ -56,6 +56,10 @@ export const api = {
       fetchWithAuth(`/issues/${id}/reassign`, { method: 'PATCH', body: JSON.stringify({ primaryDepartmentId, linkedDepartmentIds }) }),
     confirm: (id: string, isResolved: boolean, comment?: string) => 
       fetchWithAuth(`/issues/${id}/confirm`, { method: 'POST', body: JSON.stringify({ isResolved, comment }) }),
+    generateAiPlan: (id: string) => 
+      fetchWithAuth(`/issues/${id}/ai-plan`, { method: 'POST' }),
+    addDependency: (id: string, dependentDepartmentId: string, prerequisiteDepartmentId: string, notes?: string) => 
+      fetchWithAuth(`/issues/${id}/dependency`, { method: 'POST', body: JSON.stringify({ dependentDepartmentId, prerequisiteDepartmentId, notes }) }),
   },
   departments: {
     getAll: () => fetchWithAuth('/departments'),

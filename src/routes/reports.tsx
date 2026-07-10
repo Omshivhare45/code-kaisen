@@ -6,6 +6,10 @@ import { useAuth } from "@/hooks/useAuth";
 import { useState, useEffect } from "react";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
+import { BrainCircuit, X, RefreshCw, Link as LinkIcon, Loader2 } from "lucide-react";
+import ReactMarkdown from "react-markdown";
+import { toast } from "sonner";
+import { api } from "@/lib/api";
 
 export const Route = createFileRoute("/reports")({
   head: () => ({
@@ -23,6 +27,8 @@ function ReportsPage() {
   const { user, isPrivileged } = useAuth();
   const qc = useQueryClient();
   const [filter, setFilter] = useState<string>("all");
+  const [aiModalOpen, setAiModalOpen] = useState(false);
+  const [activeIssue, setActiveIssue] = useState<any>(null);
 
   const { data = [], refetch } = useQuery({
     queryKey: ["reports"],
@@ -46,6 +52,27 @@ function ReportsPage() {
     },
     onSuccess: () => { qc.invalidateQueries({ queryKey: ["reports"] }); toast.success("Reassigned successfully"); },
     onError: (e: any) => toast.error(e.message || "Failed to reassign"),
+  });
+
+  const generateAiPlan = useMutation({
+    mutationFn: async (id: string) => await api.issues.generateAiPlan(id),
+    onSuccess: (data) => {
+      qc.invalidateQueries({ queryKey: ["reports"] });
+      setActiveIssue(data.issue);
+      toast.success("AI Plan generated successfully!");
+    },
+    onError: (e: any) => toast.error(e.message || "Failed to generate AI plan"),
+  });
+
+  const addDependency = useMutation({
+    mutationFn: async ({ id, dependentDept, prereqDept }: { id: string, dependentDept: string, prereqDept: string }) => {
+      await api.issues.addDependency(id, dependentDept, prereqDept, "AI Suggested Dependency");
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["reports"] });
+      toast.success("Department linked successfully!");
+    },
+    onError: (e: any) => toast.error(e.message || "Failed to link department"),
   });
 
   const { data: departments = [] } = useQuery({
@@ -89,6 +116,7 @@ function ReportsPage() {
                 <th className="px-4 py-3 text-left">Primary Dept</th>
                 <th className="px-4 py-3 text-left">Severity</th>
                 <th className="px-4 py-3 text-left">Status</th>
+                <th className="px-4 py-3 text-left">AI Plan</th>
                 <th className="px-4 py-3 text-left">Update</th>
               </tr>
             </thead>
@@ -130,6 +158,27 @@ function ReportsPage() {
                   <td className="px-4 py-3 capitalize">{r.urgencyScore}/10</td>
                   <td className="px-4 py-3"><StatusPill status={r.status} /></td>
                   <td className="px-4 py-3">
+                    {isPrivileged && (
+                      <button
+                        onClick={() => {
+                          setActiveIssue(r);
+                          setAiModalOpen(true);
+                          if (!r.aiResolutionPlan) {
+                            generateAiPlan.mutate(r._id);
+                          }
+                        }}
+                        className={`inline-flex items-center gap-1.5 rounded border px-2 py-1 text-xs font-semibold transition-colors ${
+                          r.aiResolutionPlan
+                            ? "border-secondary/30 bg-secondary/10 text-secondary hover:bg-secondary/20"
+                            : "border-border bg-card text-muted-foreground hover:bg-muted"
+                        }`}
+                      >
+                        <BrainCircuit className="h-3.5 w-3.5" />
+                        {r.aiResolutionPlan ? "View Plan" : "Generate"}
+                      </button>
+                    )}
+                  </td>
+                  <td className="px-4 py-3">
                     {isPrivileged ? (
                       <select
                         defaultValue={r.status}
@@ -149,6 +198,108 @@ function ReportsPage() {
           </table>
         </div>
       </div>
+
+      {/* AI Plan Modal */}
+      {aiModalOpen && activeIssue && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 p-4 backdrop-blur-sm">
+          <div className="flex max-h-[85vh] w-full max-w-2xl flex-col overflow-hidden rounded-xl border border-border bg-card shadow-2xl">
+            <div className="flex items-center justify-between border-b border-border bg-muted/40 px-5 py-4">
+              <div className="flex items-center gap-2">
+                <div className="grid h-8 w-8 place-items-center rounded-md bg-secondary/10 text-secondary">
+                  <BrainCircuit className="h-4 w-4" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold text-foreground">AI Resolution Plan</h3>
+                  <p className="text-xs text-muted-foreground">For: {activeIssue.title}</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setAiModalOpen(false)}
+                className="rounded-md p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            <div className="flex-1 overflow-y-auto p-5">
+              {generateAiPlan.isPending ? (
+                <div className="flex h-40 flex-col items-center justify-center gap-3 text-muted-foreground">
+                  <Loader2 className="h-8 w-8 animate-spin text-secondary" />
+                  <p className="text-sm">Gemini is analyzing the issue and generating a plan...</p>
+                </div>
+              ) : (
+                <div className="space-y-6">
+                  {/* Summary Section */}
+                  <div>
+                    <h4 className="mb-2 text-xs font-semibold uppercase tracking-widest text-muted-foreground">Issue Summary</h4>
+                    <div className="rounded-lg border border-border bg-muted/30 p-3 text-sm leading-relaxed text-foreground">
+                      {activeIssue.aiSummary || "No summary available."}
+                    </div>
+                  </div>
+
+                  {/* Plan Section */}
+                  <div>
+                    <h4 className="mb-2 text-xs font-semibold uppercase tracking-widest text-muted-foreground">Step-by-Step Resolution</h4>
+                    <div className="prose prose-sm prose-p:leading-relaxed prose-pre:bg-muted max-w-none rounded-lg border border-border p-4 text-foreground dark:prose-invert">
+                      <ReactMarkdown>{activeIssue.aiResolutionPlan || "No plan available."}</ReactMarkdown>
+                    </div>
+                  </div>
+
+                  {/* Cross-Department Link Suggestion */}
+                  {activeIssue.aiSuggestedDepartment && (
+                    <div className="flex items-center justify-between rounded-lg border border-primary/20 bg-primary/5 p-4">
+                      <div>
+                        <h4 className="flex items-center gap-1.5 text-sm font-semibold text-primary">
+                          <LinkIcon className="h-4 w-4" /> Cross-Department Coordination
+                        </h4>
+                        <p className="mt-1 text-xs text-muted-foreground">
+                          AI suggests involving <strong>{activeIssue.aiSuggestedDepartment}</strong> to resolve this fully.
+                        </p>
+                      </div>
+                      <button
+                        onClick={() => {
+                          // Find department ID by name
+                          const dept = departments.find((d: any) => d.name === activeIssue.aiSuggestedDepartment);
+                          if (dept && activeIssue.primaryDepartment) {
+                            addDependency.mutate({
+                              id: activeIssue._id,
+                              dependentDept: activeIssue.primaryDepartment._id,
+                              prereqDept: dept._id
+                            });
+                          } else {
+                            toast.error("Could not find suggested department in the system.");
+                          }
+                        }}
+                        disabled={addDependency.isPending}
+                        className="rounded bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground hover:bg-secondary disabled:opacity-50"
+                      >
+                        {addDependency.isPending ? "Linking..." : "Link Department"}
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+
+            <div className="flex items-center justify-between border-t border-border bg-muted/40 px-5 py-3">
+              <button
+                onClick={() => generateAiPlan.mutate(activeIssue._id)}
+                disabled={generateAiPlan.isPending}
+                className="flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-semibold text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-50"
+              >
+                <RefreshCw className={`h-3.5 w-3.5 ${generateAiPlan.isPending ? "animate-spin" : ""}`} />
+                Regenerate Plan
+              </button>
+              <button
+                onClick={() => setAiModalOpen(false)}
+                className="rounded-md bg-secondary px-4 py-2 text-xs font-bold text-secondary-foreground hover:bg-secondary/90"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

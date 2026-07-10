@@ -7,7 +7,7 @@ const DepartmentDependency = require('../models/DepartmentDependency');
 const Department = require('../models/Department');
 const { requireAuth, requireRole } = require('../middleware/authMiddleware');
 const upload = require('../middleware/uploadMiddleware');
-const { classifyIssue } = require('../services/aiService');
+const { classifyIssue, generateIssuePlan } = require('../services/aiService');
 
 // Duplicate/Cluster detection (Geo-proximity + text)
 async function findDuplicateCluster(lat, lng, category) {
@@ -196,6 +196,37 @@ router.patch('/:id/reassign', requireAuth, requireRole(['dept_admin', 'admin', '
   }
 });
 
+// POST /api/issues/:id/ai-plan - Generate AI plan
+router.post('/:id/ai-plan', requireAuth, requireRole(['officer', 'dept_admin', 'admin', 'super_admin']), async (req, res) => {
+  try {
+    const issue = await Issue.findById(req.params.id).populate('primaryDepartment');
+    if (!issue) return res.status(404).json({ error: 'Issue not found' });
+
+    const issueData = {
+      title: issue.title,
+      description: issue.description,
+      category: issue.category,
+      area: issue.area,
+      urgencyScore: issue.urgencyScore,
+      departmentName: issue.primaryDepartment?.name || 'Unassigned',
+    };
+
+    const aiPlan = await generateIssuePlan(issueData);
+    
+    issue.aiSummary = aiPlan.summary;
+    issue.aiResolutionPlan = aiPlan.resolutionPlan;
+    issue.aiSuggestedDepartment = aiPlan.suggestedLinkedDepartment;
+    await issue.save();
+
+    res.json({
+      issue,
+      suggestedLinkedDepartment: aiPlan.suggestedLinkedDepartment
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // POST /api/issues/:id/confirm - Citizen confirms
 router.post('/:id/confirm', requireAuth, async (req, res) => {
   try {
@@ -212,6 +243,33 @@ router.post('/:id/confirm', requireAuth, async (req, res) => {
     });
 
     res.status(201).json(confirmation);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/issues/:id/dependency - Manually add department dependency (e.g. from AI suggestion)
+router.post('/:id/dependency', requireAuth, requireRole(['officer', 'dept_admin', 'admin', 'super_admin']), async (req, res) => {
+  try {
+    const { dependentDepartmentId, prerequisiteDepartmentId, notes } = req.body;
+    const issue = await Issue.findById(req.params.id);
+    if (!issue) return res.status(404).json({ error: 'Issue not found' });
+
+    // Link in the issue document if not already linked
+    if (!issue.linkedDepartments.includes(prerequisiteDepartmentId)) {
+      issue.linkedDepartments.push(prerequisiteDepartmentId);
+      await issue.save();
+    }
+
+    // Create the actual dependency record
+    const dependency = await DepartmentDependency.create({
+      issueId: issue._id,
+      dependentDepartment: dependentDepartmentId,
+      prerequisiteDepartment: prerequisiteDepartmentId,
+      notes: notes || 'Manually added via AI Plan suggestion',
+    });
+
+    res.status(201).json(dependency);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
