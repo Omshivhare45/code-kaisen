@@ -1,6 +1,8 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { useQuery } from "@tanstack/react-query";
-import { supabase } from "@/integrations/supabase/client";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useEffect } from "react";
+import { io } from "socket.io-client";
+import { api, API_URL } from "@/lib/api";
 import { SiteNav } from "@/components/SiteNav";
 import { BhopalMap } from "@/components/BhopalMap";
 import { BHOPAL_AREAS, aqiColor } from "@/lib/bhopal-data";
@@ -10,28 +12,42 @@ import { AlertTriangle, Wind, Route as RouteIcon, Users, ArrowRight, Activity } 
 export const Route = createFileRoute("/")({ component: Home });
 
 function Home() {
+  const qc = useQueryClient();
+
+  // Socket.io integration for real-time updates
+  useEffect(() => {
+    // Extract base URL from API_URL (remove /api)
+    const baseUrl = API_URL.replace('/api', '');
+    const socket = io(baseUrl);
+
+    socket.on('ISSUE_CREATED', () => {
+      qc.invalidateQueries({ queryKey: ["reports-summary"] });
+    });
+    
+    socket.on('ISSUE_UPDATED', () => {
+      qc.invalidateQueries({ queryKey: ["reports-summary"] });
+    });
+
+    socket.on('ISSUE_REASSIGNED', () => {
+      qc.invalidateQueries({ queryKey: ["reports-summary"] });
+    });
+
+    return () => {
+      socket.disconnect();
+    };
+  }, [qc]);
+
   const reports = useQuery({
     queryKey: ["reports-summary"],
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from("issue_reports")
-        .select("id,title,category,area,status,severity,lat,lng,created_at")
-        .order("created_at", { ascending: false })
-        .limit(50);
-      if (error) throw error;
-      return data ?? [];
+      return await api.issues.getAll();
     },
   });
 
   const works = useQuery({
     queryKey: ["works-summary"],
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from("dept_works")
-        .select("id,title,department,area,status,starts_on,ends_on,lat,lng")
-        .order("starts_on", { ascending: true });
-      if (error) throw error;
-      return data ?? [];
+      return await api.works.getAll();
     },
   });
 
@@ -40,18 +56,17 @@ function Home() {
   );
   const worstAqi = [...BHOPAL_AREAS].sort((a, b) => b.aqi - a.aqi)[0];
 
-  // Clash detection: >1 dept working in the same area with overlapping dates
   const clashes = detectClashes(works.data ?? []);
 
   const markers = [
-    ...(reports.data ?? []).map((r) => ({
-      lat: r.lat as number | null,
-      lng: r.lng as number | null,
+    ...(reports.data ?? []).map((r: any) => ({
+      lat: r.location?.coordinates[1] as number | null, // GeoJSON is [lng, lat]
+      lng: r.location?.coordinates[0] as number | null,
       color: "oklch(0.60 0.22 30)",
-      label: r.title,
+      label: r.title + (r.clusterId && r.clusterId !== r._id ? ' (Duplicate)' : ''),
       kind: "report" as const,
     })),
-    ...(works.data ?? []).map((w) => ({
+    ...(works.data ?? []).map((w: any) => ({
       lat: w.lat as number | null,
       lng: w.lng as number | null,
       color: "oklch(0.78 0.16 68)",
@@ -110,7 +125,7 @@ function Home() {
       <section className="mx-auto -mt-10 max-w-7xl px-6">
         <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
           <StatCard icon={<Wind className="h-4 w-4" />} label="City avg AQI" value={String(avgAqi)} note={`Peak: ${worstAqi.name} ${worstAqi.aqi}`} tone="warn" />
-          <StatCard icon={<AlertTriangle className="h-4 w-4" />} label="Open citizen reports" value={String((reports.data ?? []).filter((r) => r.status !== "resolved").length)} note="Awaiting action" />
+          <StatCard icon={<AlertTriangle className="h-4 w-4" />} label="Open citizen reports" value={String((reports.data ?? []).filter((r: any) => r.status !== "resolved").length)} note="Awaiting action" />
           <StatCard icon={<RouteIcon className="h-4 w-4" />} label="Scheduled works" value={String((works.data ?? []).length)} note={`${clashes.length} inter-dept clash${clashes.length === 1 ? "" : "es"}`} tone={clashes.length ? "warn" : "ok"} />
           <StatCard icon={<Users className="h-4 w-4" />} label="Departments online" value="6" note="PWD · BMC · Traffic · PCB · Elec · Water" />
         </div>
@@ -180,14 +195,15 @@ function Home() {
       <section className="mx-auto max-w-7xl px-6 pb-16">
         <SectionHead icon={<AlertTriangle className="h-4 w-4" />} title="Recent citizen reports" subtitle="Latest issues submitted from the ground" />
         <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
-          {(reports.data ?? []).slice(0, 6).map((r) => (
-            <div key={r.id} className="rounded-xl border border-border bg-card p-4 shadow-[var(--shadow-card)]">
+          {(reports.data ?? []).slice(0, 6).map((r: any) => (
+            <div key={r._id} className="rounded-xl border border-border bg-card p-4 shadow-[var(--shadow-card)]">
               <div className="flex items-center justify-between text-xs uppercase tracking-wider text-muted-foreground">
                 <span>{r.category}</span>
                 <StatusPill status={r.status} />
               </div>
               <div className="mt-2 text-sm font-semibold text-foreground">{r.title}</div>
               <div className="mt-1 text-xs text-muted-foreground">{r.area}</div>
+              {r.aiSummary && <div className="mt-2 text-xs italic text-muted-foreground border-l-2 border-accent pl-2">{r.aiSummary}</div>}
             </div>
           ))}
           {(reports.data ?? []).length === 0 && (
@@ -255,7 +271,7 @@ export function StatusPill({ status }: { status: string }) {
 }
 
 function detectClashes(
-  works: Array<{ area: string; department: string; starts_on: string; ends_on: string }>,
+  works: Array<{ area: string; department: string; startsOn: string; endsOn: string }>,
 ) {
   const byArea: Record<string, typeof works> = {};
   for (const w of works) (byArea[w.area] ||= []).push(w);
@@ -265,7 +281,7 @@ function detectClashes(
       for (let j = i + 1; j < list.length; j++) {
         const a = list[i], b = list[j];
         if (a.department === b.department) continue;
-        if (a.starts_on <= b.ends_on && b.starts_on <= a.ends_on) {
+        if (a.startsOn <= b.endsOn && b.startsOn <= a.endsOn) {
           out.push({ area, departments: [a.department, b.department] });
         }
       }

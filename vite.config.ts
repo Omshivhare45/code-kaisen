@@ -13,3 +13,4 @@ export default defineConfig({
     server: { entry: "server" },
   },
 });
+// Triggering Vite restart to pick up new dependencies

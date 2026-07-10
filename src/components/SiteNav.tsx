@@ -1,10 +1,9 @@
 import { Link } from "@tanstack/react-router";
 import { useAuth, ROLE_LABEL } from "@/hooks/useAuth";
-import { supabase } from "@/integrations/supabase/client";
 import { MapPin, LogOut } from "lucide-react";
 
 export function SiteNav() {
-  const { user, role } = useAuth();
+  const { user, role, logout } = useAuth();
   return (
     <header className="sticky top-0 z-30 border-b border-border/60 bg-background/85 backdrop-blur">
       <div className="mx-auto flex h-16 max-w-7xl items-center justify-between px-6">
@@ -36,7 +35,10 @@ export function SiteNav() {
                 {user.email}
               </span>
               <button
-                onClick={() => supabase.auth.signOut()}
+                onClick={() => {
+                  logout(); 
+                  window.location.href = '/';
+                }}
                 className="inline-flex items-center gap-1 rounded-md border border-border px-3 py-1.5 text-xs font-medium text-foreground hover:bg-muted"
               >
                 <LogOut className="h-3.5 w-3.5" /> Sign out

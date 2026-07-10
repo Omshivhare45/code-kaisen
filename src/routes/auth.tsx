@@ -1,12 +1,13 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import { useState } from "react";
-import { supabase } from "@/integrations/supabase/client";
+import { useState, useEffect } from "react";
+import { useAuth } from "@/hooks/useAuth";
 import { toast } from "sonner";
 import { SiteNav } from "@/components/SiteNav";
 import { MapPin, ShieldCheck, Building2, Wrench, User as UserIcon, ArrowLeft, ArrowRight, Check } from "lucide-react";
 import { DEPARTMENTS } from "@/lib/bhopal-data";
+import { api, setToken } from "@/lib/api";
 
-export const Route = createFileRoute("/auth")({
+export const Route = createFileRoute("/auth")({ 
   head: () => ({
     meta: [
       { title: "Sign in · SahayogBhopal" },
@@ -55,7 +56,6 @@ const ROLE_TIERS: {
 function AuthPage() {
   const navigate = useNavigate();
   const [mode, setMode] = useState<"signin" | "signup">("signin");
-  // signup wizard: 1 = pick role, 2 = details
   const [step, setStep] = useState<1 | 2>(1);
   const [role, setRole] = useState<RoleChoice>("citizen");
   const [department, setDepartment] = useState<string>("");
@@ -65,6 +65,14 @@ function AuthPage() {
   const [busy, setBusy] = useState(false);
 
   const activeTier = ROLE_TIERS.find((r) => r.value === role)!;
+  const { user, loading } = useAuth();
+
+  // Auto-redirect if already logged in
+  useEffect(() => {
+    if (!loading && user) {
+      navigate({ to: "/dashboard" });
+    }
+  }, [user, loading, navigate]);
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -75,35 +83,27 @@ function AuthPage() {
     setBusy(true);
     try {
       if (mode === "signup") {
-        const { error } = await supabase.auth.signUp({
+        const res = await api.auth.register({
           email,
           password,
-          options: {
-            emailRedirectTo: `${window.location.origin}/`,
-            data: {
-              full_name: fullName,
-              requested_role: role,
-              department: activeTier.needsDept ? department : null,
-            },
-          },
+          fullName,
+          role,
+          department: activeTier.needsDept ? department : null,
         });
-        if (error) throw error;
+        setToken(res.token);
         toast.success(`Welcome, ${fullName || "friend"} — your ${activeTier.label} account is ready.`);
       } else {
-        const { error } = await supabase.auth.signInWithPassword({ email, password });
-        if (error) throw error;
+        const res = await api.auth.login({ email, password });
+        setToken(res.token);
         toast.success("Welcome back.");
       }
-      navigate({ to: "/dashboard" });
-    } catch (err) {
-      toast.error((err as Error).message);
+      // Force a full page reload to the dashboard so useAuth() refetches with the new token
+      window.location.href = "/dashboard";
+    } catch (err: any) {
+      toast.error(err.message || "Authentication failed");
     } finally {
       setBusy(false);
     }
-  }
-
-  async function google() {
-    toast.info("Google sign-in coming soon — please use email for now.");
   }
 
   return (
@@ -192,9 +192,6 @@ function AuthPage() {
               >
                 Continue as {activeTier.label} <ArrowRight className="h-4 w-4" />
               </button>
-              <p className="text-center text-[11px] text-muted-foreground">
-                Super Admin access is granted by the city coordinator — it can't be self-selected.
-              </p>
             </div>
           ) : (
             <form onSubmit={submit} className="mt-6 space-y-3">
@@ -250,17 +247,6 @@ function AuthPage() {
               </button>
             </form>
           )}
-
-          <div className="relative my-5 text-center">
-            <span className="bg-card px-2 text-xs uppercase tracking-widest text-muted-foreground relative z-10">or</span>
-            <div className="absolute left-0 right-0 top-1/2 -z-0 h-px bg-border" />
-          </div>
-          <button
-            onClick={google}
-            className="w-full rounded-md border border-border bg-background py-2.5 text-sm font-semibold text-foreground hover:bg-muted"
-          >
-            Continue with Google
-          </button>
         </div>
       </div>
     </div>

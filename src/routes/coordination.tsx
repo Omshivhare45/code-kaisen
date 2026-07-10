@@ -1,6 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { supabase } from "@/integrations/supabase/client";
 import { SiteNav } from "@/components/SiteNav";
 import { StatusPill } from "./index";
 import { useAuth } from "@/hooks/useAuth";
@@ -8,6 +7,7 @@ import { BHOPAL_AREAS, DEPARTMENTS } from "@/lib/bhopal-data";
 import { useState } from "react";
 import { toast } from "sonner";
 import { AlertTriangle, Plus } from "lucide-react";
+import { api } from "@/lib/api";
 
 export const Route = createFileRoute("/coordination")({
   head: () => ({
@@ -20,23 +20,20 @@ export const Route = createFileRoute("/coordination")({
 });
 
 function CoordinationPage() {
-  const { user } = useAuth();
+  const { user, isPrivileged } = useAuth();
   const qc = useQueryClient();
   const [showForm, setShowForm] = useState(false);
 
   const { data: works = [] } = useQuery({
     queryKey: ["works"],
     queryFn: async () => {
-      const { data, error } = await supabase.from("dept_works").select("*").order("starts_on");
-      if (error) throw error;
-      return data;
+      return await api.works.getAll();
     },
   });
 
   const create = useMutation({
     mutationFn: async (payload: any) => {
-      const { error } = await supabase.from("dept_works").insert(payload);
-      if (error) throw error;
+      await api.works.create(payload);
     },
     onSuccess: () => {
       toast.success("Work scheduled");
@@ -44,7 +41,7 @@ function CoordinationPage() {
       qc.invalidateQueries({ queryKey: ["works-summary"] });
       setShowForm(false);
     },
-    onError: (e) => toast.error((e as Error).message),
+    onError: (e: any) => toast.error(e.message || "Failed to schedule work"),
   });
 
   const byArea: Record<string, typeof works> = {};
@@ -59,7 +56,7 @@ function CoordinationPage() {
             <h1 className="text-3xl font-bold tracking-tight text-primary">Department coordination</h1>
             <p className="mt-1 text-sm text-muted-foreground">Every scheduled work, grouped by area. Overlapping departments are flagged in saffron.</p>
           </div>
-          {user && (
+          {isPrivileged && (
             <button onClick={() => setShowForm((s) => !s)}
               className="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground hover:bg-secondary">
               <Plus className="h-4 w-4" /> Schedule work
@@ -67,7 +64,7 @@ function CoordinationPage() {
           )}
         </div>
 
-        {showForm && user && <WorkForm onSubmit={(v) => create.mutate({ ...v, created_by: user.id })} />}
+        {showForm && isPrivileged && <WorkForm onSubmit={(v) => create.mutate(v)} />}
 
         <div className="mt-8 space-y-4">
           {Object.keys(byArea).length === 0 && (
@@ -76,7 +73,7 @@ function CoordinationPage() {
             </div>
           )}
           {Object.entries(byArea).map(([area, list]) => {
-            const depts = new Set(list.map((l) => l.department));
+            const depts = new Set(list.map((l: any) => l.department));
             const clash = depts.size > 1 && hasOverlap(list);
             return (
               <div key={area} className={`rounded-xl border p-5 shadow-[var(--shadow-card)] ${clash ? "border-accent/70 bg-accent/10" : "border-border bg-card"}`}>
@@ -89,8 +86,8 @@ function CoordinationPage() {
                   )}
                 </div>
                 <div className="mt-3 grid gap-2 md:grid-cols-2">
-                  {list.map((w) => (
-                    <div key={w.id} className="rounded-md border border-border bg-background p-3">
+                  {list.map((w: any) => (
+                    <div key={w._id} className="rounded-md border border-border bg-background p-3">
                       <div className="flex items-center justify-between text-xs">
                         <span className="rounded bg-secondary px-2 py-0.5 font-bold uppercase tracking-wider text-secondary-foreground">
                           {w.department}
@@ -99,7 +96,7 @@ function CoordinationPage() {
                       </div>
                       <div className="mt-1.5 font-semibold text-foreground">{w.title}</div>
                       <div className="text-xs text-muted-foreground">
-                        {w.starts_on} → {w.ends_on}
+                        {w.startsOn} → {w.endsOn}
                       </div>
                     </div>
                   ))}
@@ -113,11 +110,11 @@ function CoordinationPage() {
   );
 }
 
-function hasOverlap(list: Array<{ department: string; starts_on: string; ends_on: string }>) {
+function hasOverlap(list: Array<{ department: string; startsOn: string; endsOn: string }>) {
   for (let i = 0; i < list.length; i++)
     for (let j = i + 1; j < list.length; j++) {
       const a = list[i], b = list[j];
-      if (a.department !== b.department && a.starts_on <= b.ends_on && b.starts_on <= a.ends_on) return true;
+      if (a.department !== b.department && a.startsOn <= b.endsOn && b.startsOn <= a.endsOn) return true;
     }
   return false;
 }
@@ -128,8 +125,8 @@ function WorkForm({ onSubmit }: { onSubmit: (v: any) => void }) {
     title: "",
     description: "",
     area: BHOPAL_AREAS[0].name,
-    starts_on: new Date().toISOString().slice(0, 10),
-    ends_on: new Date(Date.now() + 5 * 86400_000).toISOString().slice(0, 10),
+    startsOn: new Date().toISOString().slice(0, 10),
+    endsOn: new Date(Date.now() + 5 * 86400_000).toISOString().slice(0, 10),
   });
   return (
     <form
@@ -154,10 +151,10 @@ function WorkForm({ onSubmit }: { onSubmit: (v: any) => void }) {
         <input required value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} className={inputCls} placeholder="Milling, drain, cable…" />
       </Field>
       <Field label="Starts on">
-        <input type="date" value={form.starts_on} onChange={(e) => setForm({ ...form, starts_on: e.target.value })} className={inputCls} />
+        <input type="date" value={form.startsOn} onChange={(e) => setForm({ ...form, startsOn: e.target.value })} className={inputCls} />
       </Field>
       <Field label="Ends on">
-        <input type="date" value={form.ends_on} onChange={(e) => setForm({ ...form, ends_on: e.target.value })} className={inputCls} />
+        <input type="date" value={form.endsOn} onChange={(e) => setForm({ ...form, endsOn: e.target.value })} className={inputCls} />
       </Field>
       <div className="flex items-end">
         <button className="w-full rounded-md bg-accent py-2 text-sm font-bold text-accent-foreground">Save</button>
