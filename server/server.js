@@ -4,6 +4,7 @@ const mongoose = require('mongoose');
 const cors = require('cors');
 const http = require('http');
 const { Server } = require('socket.io');
+const whatsappRoutes = require('./routes/whatsapp.routes');
 
 const app = express();
 const server = http.createServer(app);
@@ -22,6 +23,7 @@ app.use('/api/auth', require('./routes/auth'));
 app.use('/api/issues', require('./routes/issues'));
 app.use('/api/departments', require('./routes/departments'));
 app.use('/api/works', require('./routes/works'));
+app.use('/webhook', whatsappRoutes);
 
 // Make io accessible in routes
 app.set('io', io);
