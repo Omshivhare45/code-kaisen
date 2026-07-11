@@ -11,7 +11,15 @@ type MarkerData = {
 
 const BHOPAL_CENTER: [number, number] = [23.2599, 77.4126];
 
-export function BhopalMap({ markers = [] }: { markers?: MarkerData[] }) {
+export function BhopalMap({
+  markers = [],
+  areas = BHOPAL_AREAS,
+  filters = { showAqi: true, showReports: true, showWorks: true },
+}: {
+  markers?: MarkerData[];
+  areas?: typeof BHOPAL_AREAS;
+  filters?: { showAqi: boolean; showReports: boolean; showWorks: boolean };
+}) {
   const [mounted, setMounted] = useState(false);
   const [mod, setMod] = useState<{
     MapContainer: any; TileLayer: any; CircleMarker: any; Circle: any; Popup: any; Tooltip: any;
@@ -47,7 +55,7 @@ export function BhopalMap({ markers = [] }: { markers?: MarkerData[] }) {
   const { MapContainer, TileLayer, CircleMarker, Circle, Popup, Tooltip } = mod;
 
   return (
-    <div className="relative aspect-[16/10] w-full overflow-hidden rounded-xl border border-border shadow-[var(--shadow-elegant)]">
+    <div className="relative aspect-[16/10] w-full overflow-hidden rounded-xl border border-border shadow-[var(--shadow-elegant)] z-0">
       <MapContainer
         center={BHOPAL_CENTER}
         zoom={12}
@@ -60,7 +68,7 @@ export function BhopalMap({ markers = [] }: { markers?: MarkerData[] }) {
         />
 
         {/* AQI heat halos per area */}
-        {BHOPAL_AREAS.map((a) => (
+        {filters.showAqi && areas.map((a) => (
           <Circle
             key={"halo-" + a.name}
             center={[a.lat, a.lng]}
@@ -74,8 +82,8 @@ export function BhopalMap({ markers = [] }: { markers?: MarkerData[] }) {
           />
         ))}
 
-        {/* Area markers */}
-        {BHOPAL_AREAS.map((a) => (
+        {/* Area markers with detailed Popups */}
+        {areas.map((a) => (
           <CircleMarker
             key={a.name}
             center={[a.lat, a.lng]}
@@ -87,18 +95,31 @@ export function BhopalMap({ markers = [] }: { markers?: MarkerData[] }) {
               fillOpacity: 1,
             }}
           >
-            <Tooltip direction="top" offset={[0, -6]} opacity={0.95}>
-              <div className="text-xs">
-                <div className="font-semibold">{a.name}</div>
-                <div>AQI {a.aqi} · {a.aqiCategory}</div>
-                <div>Road: {a.roadCondition}</div>
+            <Popup>
+              <div className="w-48 text-sm">
+                <div className="font-bold text-primary mb-1 border-b pb-1">{a.name} (Live)</div>
+                <div className="flex justify-between mt-2">
+                  <span className="text-muted-foreground">AQI:</span>
+                  <span className="font-bold" style={{ color: aqiColor(a.aqi) }}>{a.aqi} ({a.aqiCategory})</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Traffic:</span>
+                  <span className="font-semibold">{a.congestion}%</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Roads:</span>
+                  <span className="font-semibold">{a.roadCondition}</span>
+                </div>
               </div>
+            </Popup>
+            <Tooltip direction="top" offset={[0, -6]} opacity={0.95}>
+              <div className="text-xs font-semibold">{a.name} (Click for live stats)</div>
             </Tooltip>
           </CircleMarker>
         ))}
 
         {/* Dynamic markers (reports / works) */}
-        {markers.map((m, i) => {
+        {markers.filter(m => (m.kind === "report" && filters.showReports) || (m.kind === "work" && filters.showWorks)).map((m, i) => {
           if (m.lat == null || m.lng == null) return null;
           return (
             <CircleMarker

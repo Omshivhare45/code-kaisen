@@ -1,11 +1,11 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect } from "react";
+import { useState, useEffect } from "react";
 import { io } from "socket.io-client";
 import { api, API_URL } from "@/lib/api";
 import { SiteNav } from "@/components/SiteNav";
 import { BhopalMap } from "@/components/BhopalMap";
-import { BHOPAL_AREAS, aqiColor } from "@/lib/bhopal-data";
+import { BHOPAL_AREAS, aqiColor, useLiveBhopalData } from "@/lib/bhopal-data";
 import heroImg from "@/assets/bhopal-hero.jpg";
 import { AlertTriangle, Wind, Route as RouteIcon, Users, ArrowRight, Activity } from "lucide-react";
 
@@ -13,6 +13,12 @@ export const Route = createFileRoute("/")({ component: Home });
 
 function Home() {
   const qc = useQueryClient();
+  const liveAreas = useLiveBhopalData();
+  const [mapFilters, setMapFilters] = useState({
+    showAqi: true,
+    showReports: true,
+    showWorks: true,
+  });
 
   // Socket.io integration for real-time updates
   useEffect(() => {
@@ -133,9 +139,28 @@ function Home() {
 
       {/* MAP + PANEL */}
       <section className="mx-auto grid max-w-7xl gap-6 px-6 py-10 lg:grid-cols-[1.6fr_1fr]">
-        <div>
-          <SectionHead icon={<Activity className="h-4 w-4" />} title="Live Bhopal map" subtitle="Air quality heatmap · citizen reports · department works" />
-          <BhopalMap markers={markers} />
+        <div className="flex flex-col gap-3">
+          <SectionHead icon={<Activity className="h-4 w-4" />} title="Live Bhopal map" subtitle="Click any area marker for live telemetry" />
+          
+          <div className="flex flex-wrap gap-2 mb-2">
+            <FilterToggle 
+              active={mapFilters.showAqi} 
+              onClick={() => setMapFilters(f => ({ ...f, showAqi: !f.showAqi }))}
+              label="AQI Heatmap" 
+            />
+            <FilterToggle 
+              active={mapFilters.showReports} 
+              onClick={() => setMapFilters(f => ({ ...f, showReports: !f.showReports }))}
+              label="Citizen Reports" 
+            />
+            <FilterToggle 
+              active={mapFilters.showWorks} 
+              onClick={() => setMapFilters(f => ({ ...f, showWorks: !f.showWorks }))}
+              label="Scheduled Works" 
+            />
+          </div>
+
+          <BhopalMap markers={markers} areas={liveAreas} filters={mapFilters} />
         </div>
 
         <div className="flex flex-col gap-6">
@@ -288,4 +313,19 @@ function detectClashes(
     }
   }
   return out;
+}
+
+function FilterToggle({ active, onClick, label }: { active: boolean; onClick: () => void; label: string }) {
+  return (
+    <button
+      onClick={onClick}
+      className={`rounded-full px-3 py-1 text-xs font-semibold transition-colors border ${
+        active 
+          ? "bg-secondary text-secondary-foreground border-secondary" 
+          : "bg-transparent text-muted-foreground border-border hover:bg-muted"
+      }`}
+    >
+      {label}
+    </button>
+  );
 }

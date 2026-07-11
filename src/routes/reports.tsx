@@ -27,6 +27,7 @@ function ReportsPage() {
   const [filter, setFilter] = useState<string>("all");
   const [aiModalOpen, setAiModalOpen] = useState(false);
   const [activeIssue, setActiveIssue] = useState<any>(null);
+  const [linkedIssueIds, setLinkedIssueIds] = useState<string[]>([]);
 
   const { data = [], refetch } = useQuery({
     queryKey: ["reports"],
@@ -62,12 +63,23 @@ function ReportsPage() {
     onError: (e: any) => toast.error(e.message || "Failed to generate AI plan"),
   });
 
-  const addDependency = useMutation({
-    mutationFn: async ({ id, dependentDept, prereqDept }: { id: string, dependentDept: string, prereqDept: string }) => {
-      await api.issues.addDependency(id, dependentDept, prereqDept, "AI Suggested Dependency");
-    },
-    onSuccess: () => {
+  const generateAiOrder = useMutation({
+    mutationFn: async (id: string) => await api.issues.generateAiOrder(id),
+    onSuccess: (data) => {
       qc.invalidateQueries({ queryKey: ["reports"] });
+      setActiveIssue(data.issue);
+      toast.success("Professional order drafted successfully!");
+    },
+    onError: (e: any) => toast.error(e.message || "Failed to draft order"),
+  });
+
+  const addDependency = useMutation({
+    mutationFn: async ({ id, dependentDept, prereqDept, estimatedTime }: { id: string, dependentDept: string, prereqDept: string, estimatedTime?: string }) => {
+      await api.issues.addDependency(id, dependentDept, prereqDept, "AI Suggested Dependency", estimatedTime);
+    },
+    onSuccess: (_, variables) => {
+      qc.invalidateQueries({ queryKey: ["reports"] });
+      setLinkedIssueIds((prev) => [...prev, variables.id]);
       toast.success("Department linked successfully!");
     },
     onError: (e: any) => toast.error(e.message || "Failed to link department"),
@@ -253,26 +265,75 @@ function ReportsPage() {
                         <p className="mt-1 text-xs text-muted-foreground">
                           AI suggests involving <strong>{activeIssue.aiSuggestedDepartment}</strong> to resolve this fully.
                         </p>
+                        {activeIssue.aiEstimatedTime && (
+                          <p className="mt-1 flex items-center gap-1 text-xs font-medium text-accent">
+                            <Clock className="h-3 w-3" /> Estimated time: {activeIssue.aiEstimatedTime}
+                          </p>
+                        )}
                       </div>
-                      <button
-                        onClick={() => {
-                          // Find department ID by name
-                          const dept = departments.find((d: any) => d.name === activeIssue.aiSuggestedDepartment);
-                          if (dept && activeIssue.primaryDepartment) {
-                            addDependency.mutate({
-                              id: activeIssue._id,
-                              dependentDept: activeIssue.primaryDepartment._id,
-                              prereqDept: dept._id
-                            });
-                          } else {
-                            toast.error("Could not find suggested department in the system.");
-                          }
-                        }}
-                        disabled={addDependency.isPending}
-                        className="rounded bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground hover:bg-secondary disabled:opacity-50"
-                      >
-                        {addDependency.isPending ? "Linking..." : "Link Department"}
-                      </button>
+                      
+                      {linkedIssueIds.includes(activeIssue._id) ? (
+                        <div className="flex items-center gap-2 rounded bg-green-500/10 px-3 py-1.5 text-xs font-semibold text-green-600 dark:text-green-400">
+                          <CheckCircle2 className="h-4 w-4" /> 
+                          <span>Linked {activeIssue.aiSuggestedDepartment} - Est: {activeIssue.aiEstimatedTime || "N/A"}</span>
+                        </div>
+                      ) : (
+                        <button
+                          onClick={() => {
+                            const dept = departments.find((d: any) => d.name === activeIssue.aiSuggestedDepartment);
+                            if (dept && activeIssue.primaryDepartment) {
+                              addDependency.mutate({
+                                id: activeIssue._id,
+                                dependentDept: activeIssue.primaryDepartment._id,
+                                prereqDept: dept._id,
+                                estimatedTime: activeIssue.aiEstimatedTime
+                              });
+                            } else {
+                              toast.error("Could not find suggested department in the system.");
+                            }
+                          }}
+                          disabled={addDependency.isPending}
+                          className="rounded bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground hover:bg-secondary disabled:opacity-50"
+                        >
+                          {addDependency.isPending ? "Linking..." : "Link Department"}
+                        </button>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Professional Order Section for Admins */}
+                  {(user?.role === "dept_admin" || user?.role === "admin" || user?.role === "super_admin") && (
+                    <div className="mt-6 rounded-lg border border-border p-4 bg-muted/20">
+                      <h4 className="mb-2 text-xs font-semibold uppercase tracking-widest text-muted-foreground flex items-center justify-between">
+                        Official Directive
+                        {!activeIssue.aiProfessionalOrder && (
+                          <button
+                            onClick={() => generateAiOrder.mutate(activeIssue._id)}
+                            disabled={generateAiOrder.isPending}
+                            className="flex items-center gap-1 rounded bg-secondary px-2 py-1 text-xs font-semibold text-secondary-foreground hover:bg-secondary/90 disabled:opacity-50"
+                          >
+                            <RefreshCw className={`h-3 w-3 ${generateAiOrder.isPending ? "animate-spin" : ""}`} />
+                            {generateAiOrder.isPending ? "Drafting..." : "Draft Directive"}
+                          </button>
+                        )}
+                      </h4>
+                      {activeIssue.aiProfessionalOrder ? (
+                        <div className="space-y-4">
+                          <div className="prose prose-sm prose-p:leading-relaxed max-w-none rounded border border-border bg-background p-4 text-foreground dark:prose-invert">
+                            <ReactMarkdown>{activeIssue.aiProfessionalOrder}</ReactMarkdown>
+                          </div>
+                          <button
+                            onClick={() => toast.success("Directive sent to field officers successfully!")}
+                            className="w-full rounded bg-primary py-2 text-sm font-bold text-primary-foreground hover:bg-primary/90"
+                          >
+                            Send Notification to Officers
+                          </button>
+                        </div>
+                      ) : (
+                        <p className="text-sm text-muted-foreground italic text-center py-4">
+                          No official directive drafted yet. Click "Draft Directive" to generate a professional order.
+                        </p>
+                      )}
                     </div>
                   )}
                 </div>

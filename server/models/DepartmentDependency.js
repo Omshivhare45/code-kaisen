@@ -21,6 +21,7 @@ const departmentDependencySchema = new mongoose.Schema({
     enum: ['pending', 'unblocked'], 
     default: 'pending' 
   },
+  estimatedTime: { type: String }, // e.g. "24 hours", passed from AI
   notes: { type: String },
 }, { timestamps: true });
 

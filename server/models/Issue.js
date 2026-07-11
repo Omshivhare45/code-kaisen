@@ -47,6 +47,8 @@ const issueSchema = new mongoose.Schema({
   aiSummary: { type: String },
   aiResolutionPlan: { type: String }, // Step-by-step resolution plan
   aiSuggestedDepartment: { type: String }, // String name of suggested department
+  aiEstimatedTime: { type: String }, // e.g. "24 hours", "3 days"
+  aiProfessionalOrder: { type: String }, // Formal directive for field workers
 
 }, { timestamps: true });
 

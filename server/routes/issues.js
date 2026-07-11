@@ -7,7 +7,7 @@ const DepartmentDependency = require('../models/DepartmentDependency');
 const Department = require('../models/Department');
 const { requireAuth, requireRole } = require('../middleware/authMiddleware');
 const upload = require('../middleware/uploadMiddleware');
-const { classifyIssue, generateIssuePlan } = require('../services/aiService');
+const { classifyIssue, generateIssuePlan, generateProfessionalOrder } = require('../services/aiService');
 
 // Duplicate/Cluster detection (Geo-proximity + text)
 async function findDuplicateCluster(lat, lng, category) {
@@ -216,12 +216,37 @@ router.post('/:id/ai-plan', requireAuth, requireRole(['officer', 'dept_admin', '
     issue.aiSummary = aiPlan.summary;
     issue.aiResolutionPlan = aiPlan.resolutionPlan;
     issue.aiSuggestedDepartment = aiPlan.suggestedLinkedDepartment;
+    issue.aiEstimatedTime = aiPlan.estimatedTime;
     await issue.save();
 
     res.json({
       issue,
       suggestedLinkedDepartment: aiPlan.suggestedLinkedDepartment
     });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/issues/:id/ai-order - Generate professional order
+router.post('/:id/ai-order', requireAuth, requireRole(['dept_admin', 'admin', 'super_admin']), async (req, res) => {
+  try {
+    const issue = await Issue.findById(req.params.id).populate('primaryDepartment');
+    if (!issue) return res.status(404).json({ error: 'Issue not found' });
+
+    const issueData = {
+      title: issue.title,
+      description: issue.description,
+      area: issue.area,
+      departmentName: issue.primaryDepartment?.name || 'Bhopal City Admin',
+    };
+
+    const aiOrder = await generateProfessionalOrder(issueData);
+    
+    issue.aiProfessionalOrder = aiOrder;
+    await issue.save();
+
+    res.json({ issue });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -251,7 +276,7 @@ router.post('/:id/confirm', requireAuth, async (req, res) => {
 // POST /api/issues/:id/dependency - Manually add department dependency (e.g. from AI suggestion)
 router.post('/:id/dependency', requireAuth, requireRole(['officer', 'dept_admin', 'admin', 'super_admin']), async (req, res) => {
   try {
-    const { dependentDepartmentId, prerequisiteDepartmentId, notes } = req.body;
+    const { dependentDepartmentId, prerequisiteDepartmentId, notes, estimatedTime } = req.body;
     const issue = await Issue.findById(req.params.id);
     if (!issue) return res.status(404).json({ error: 'Issue not found' });
 
@@ -266,10 +291,29 @@ router.post('/:id/dependency', requireAuth, requireRole(['officer', 'dept_admin'
       issueId: issue._id,
       dependentDepartment: dependentDepartmentId,
       prerequisiteDepartment: prerequisiteDepartmentId,
+      estimatedTime: estimatedTime || issue.aiEstimatedTime || null,
       notes: notes || 'Manually added via AI Plan suggestion',
     });
 
     res.status(201).json(dependency);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/issues/dependencies/pending - Get dependencies for the logged in department
+router.get('/dependencies/pending', requireAuth, requireRole(['dept_admin', 'admin', 'super_admin']), async (req, res) => {
+  try {
+    if (!req.user.department) return res.json([]);
+    
+    const deps = await DepartmentDependency.find({
+      prerequisiteDepartment: req.user.department,
+      status: 'pending'
+    })
+    .populate('issueId')
+    .populate('dependentDepartment');
+    
+    res.json(deps);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

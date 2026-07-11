@@ -58,8 +58,11 @@ export const api = {
       fetchWithAuth(`/issues/${id}/confirm`, { method: 'POST', body: JSON.stringify({ isResolved, comment }) }),
     generateAiPlan: (id: string) => 
       fetchWithAuth(`/issues/${id}/ai-plan`, { method: 'POST' }),
-    addDependency: (id: string, dependentDepartmentId: string, prerequisiteDepartmentId: string, notes?: string) => 
-      fetchWithAuth(`/issues/${id}/dependency`, { method: 'POST', body: JSON.stringify({ dependentDepartmentId, prerequisiteDepartmentId, notes }) }),
+    generateAiOrder: (id: string) =>
+      fetchWithAuth(`/issues/${id}/ai-order`, { method: 'POST' }),
+    addDependency: (id: string, dependentDepartmentId: string, prerequisiteDepartmentId: string, notes?: string, estimatedTime?: string) => 
+      fetchWithAuth(`/issues/${id}/dependency`, { method: 'POST', body: JSON.stringify({ dependentDepartmentId, prerequisiteDepartmentId, notes, estimatedTime }) }),
+    getPendingDependencies: () => fetchWithAuth('/issues/dependencies/pending'),
   },
   departments: {
     getAll: () => fetchWithAuth('/departments'),

@@ -1,5 +1,5 @@
-// Static demo data used across the app. In production this would come from
 // live sensors, RTMC feeds and department APIs.
+import { useState, useEffect } from "react";
 
 export type Area = {
   name: string;
@@ -59,4 +59,42 @@ export function projectToMap(lat: number, lng: number) {
   const x = ((lng - minLng) / (maxLng - minLng)) * 100;
   const y = (1 - (lat - minLat) / (maxLat - minLat)) * 100;
   return { x: Math.max(2, Math.min(98, x)), y: Math.max(2, Math.min(98, y)) };
+}
+
+export function useLiveBhopalData() {
+  const [areas, setAreas] = useState<Area[]>(BHOPAL_AREAS);
+
+  useEffect(() => {
+    // Simulate real-time updates every 4 seconds for the hackathon demo
+    const interval = setInterval(() => {
+      setAreas((prevAreas) =>
+        prevAreas.map((area) => {
+          // +/- 5 AQI change
+          let newAqi = area.aqi + Math.floor(Math.random() * 11) - 5;
+          newAqi = Math.max(20, Math.min(500, newAqi)); // clamp 20-500
+          
+          let category: Area["aqiCategory"] = "Good";
+          if (newAqi > 50) category = "Moderate";
+          if (newAqi > 150) category = "Poor";
+          if (newAqi > 200) category = "Very Poor";
+          if (newAqi > 300) category = "Severe";
+
+          // +/- 3% congestion change
+          let newCongestion = area.congestion + Math.floor(Math.random() * 7) - 3;
+          newCongestion = Math.max(0, Math.min(100, newCongestion)); // clamp 0-100
+
+          return {
+            ...area,
+            aqi: newAqi,
+            aqiCategory: category,
+            congestion: newCongestion,
+          };
+        })
+      );
+    }, 4000);
+
+    return () => clearInterval(interval);
+  }, []);
+
+  return areas;
 }

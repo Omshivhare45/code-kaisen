@@ -31,6 +31,14 @@ function CoordinationPage() {
     },
   });
 
+  const { data: pendingDeps = [] } = useQuery({
+    queryKey: ["pendingDependencies"],
+    queryFn: async () => {
+      return await api.issues.getPendingDependencies();
+    },
+    enabled: isPrivileged,
+  });
+
   const create = useMutation({
     mutationFn: async (payload: any) => {
       await api.works.create(payload);
@@ -65,6 +73,40 @@ function CoordinationPage() {
         </div>
 
         {showForm && isPrivileged && <WorkForm onSubmit={(v) => create.mutate(v)} />}
+
+        {/* Action Required: Cross-Department Dependencies */}
+        {isPrivileged && pendingDeps.length > 0 && (
+          <div className="mt-8 rounded-xl border border-destructive/50 bg-destructive/5 p-6 shadow-sm">
+            <h2 className="mb-4 flex items-center gap-2 text-lg font-bold text-destructive">
+              <AlertTriangle className="h-5 w-5" />
+              Action Required: Pending Cross-Department Requests
+            </h2>
+            <div className="grid gap-3">
+              {pendingDeps.map((dep: any) => (
+                <div key={dep._id} className="flex flex-col gap-2 rounded-lg border border-destructive/20 bg-background p-4 sm:flex-row sm:items-center sm:justify-between">
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <span className="rounded bg-destructive/10 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-destructive">
+                        Waiting on You
+                      </span>
+                      <span className="text-sm font-semibold text-foreground">
+                        Requested by: {dep.dependentDepartment?.name || "Another Department"}
+                      </span>
+                    </div>
+                    <h3 className="mt-1 font-bold text-primary">{dep.issueId?.title}</h3>
+                    <p className="text-sm text-muted-foreground">Location: {dep.issueId?.area}</p>
+                  </div>
+                  {dep.estimatedTime && (
+                    <div className="flex shrink-0 items-center gap-1.5 rounded-md bg-secondary/10 px-3 py-2 text-sm font-semibold text-secondary">
+                      <span>Expected turnaround:</span>
+                      <span className="font-bold">{dep.estimatedTime}</span>
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
 
         <div className="mt-8 space-y-4">
           {Object.keys(byArea).length === 0 && (
