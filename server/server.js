@@ -40,30 +40,13 @@ const PORT = process.env.PORT || 5000;
 async function startServer() {
   try {
     let mongoUri = process.env.MONGO_URI;
-    
-    // If no URI provided, use an in-memory database automatically
-    if (!mongoUri || mongoUri === 'mongodb://127.0.0.1:27017/sahayog-bhopal') {
-      console.log('No external MongoDB URI found, spinning up in-memory MongoDB for zero-config local run...');
-      const { MongoMemoryServer } = require('mongodb-memory-server');
-      const mongod = await MongoMemoryServer.create();
-      mongoUri = mongod.getUri();
-      
-      // Auto-seed the database if we just created a fresh in-memory instance
-      process.env.AUTO_SEED = 'true';
+
+    if (!mongoUri) {
+      throw new Error('MONGO_URI is not defined in the environment variables.');
     }
 
     await mongoose.connect(mongoUri);
     console.log('Connected to MongoDB');
-
-    // Run seed if in-memory
-    if (process.env.AUTO_SEED === 'true') {
-      try {
-        console.log('Auto-seeding memory database...');
-        require('./seed_memory'); // We will create this simple seed script next
-      } catch (e) {
-        console.error('Seed error:', e);
-      }
-    }
 
     server.listen(PORT, () => {
       console.log(`Server running on port ${PORT}`);
