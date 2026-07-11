@@ -126,7 +126,83 @@ async function generateProfessionalOrder(issueData) {
   }
 }
 
+/**
+ * Classifies an incoming WhatsApp issue given an image buffer, description, and area.
+ * 
+ * @param {Buffer|null} imageBuffer 
+ * @param {string} mimeType 
+ * @param {string} description 
+ * @param {string} area 
+ * @returns {Promise<Object>} JSON containing title, description, category, urgencyScore, departmentName
+ */
+async function classifyWhatsAppIssue(imageBuffer, mimeType, description, area) {
+  if (!genAI) {
+    console.warn('Gemini API key is missing. Returning mock AI classification.');
+    return {
+      title: "Citizen Reported Issue",
+      description: description || "Reported via WhatsApp.",
+      category: "pothole", // fallback
+      urgencyScore: 5,
+      departmentName: "PWD",
+      area: area || "Bhopal"
+    };
+  }
+
+  const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
+
+  const prompt = `
+    You are an expert civic administration assistant for Bhopal.
+    A citizen has reported an issue via WhatsApp.
+    Description provided by citizen: "${description || 'None provided'}"
+    Approximate Location Area: "${area || 'Unknown'}"
+    
+    Based on the image (if provided) and the text, determine the following:
+    - title: A short 3-6 word title.
+    - description: A detailed description of what is seen in the image or described.
+    - category: Must be one of ["pothole", "blockage", "pollution", "garbage", "waterlogging", "streetlight"].
+    - urgencyScore: A number from 1 to 10 (10 being highly critical/dangerous).
+    - departmentName: Must be one of ["PWD", "BMC", "Traffic", "Pollution Board", "Electricity", "Water"].
+    
+    Your task is to return a JSON object with EXACTLY those 5 keys.
+    Return ONLY valid JSON. Do not include markdown code block backticks around the JSON.
+  `;
+
+  try {
+    const contents = [prompt];
+    if (imageBuffer) {
+      contents.push({
+        inlineData: {
+          data: imageBuffer.toString("base64"),
+          mimeType: mimeType || "image/jpeg"
+        }
+      });
+    }
+
+    const result = await model.generateContent(contents);
+    const response = await result.response;
+    let text = response.text().trim();
+    
+    // Strip markdown JSON block if present
+    if (text.startsWith('\`\`\`json')) {
+      text = text.replace(/^\`\`\`json/, '').replace(/\`\`\`$/, '').trim();
+    } else if (text.startsWith('\`\`\`')) {
+      text = text.replace(/^\`\`\`/, '').replace(/\`\`\`$/, '').trim();
+    }
+
+    try {
+      return JSON.parse(text);
+    } catch (parseError) {
+      console.warn('Failed to parse AI classification response.', text);
+      throw new Error('AI response was not valid JSON');
+    }
+  } catch (error) {
+    console.error('AI Classification Error:', error);
+    throw new Error('Failed to classify WhatsApp issue.');
+  }
+}
+
 module.exports = {
   generateIssuePlan,
-  generateProfessionalOrder
+  generateProfessionalOrder,
+  classifyWhatsAppIssue
 };
